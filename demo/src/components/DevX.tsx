@@ -4,9 +4,8 @@
 // (node_idx, bumps, path, spares never appear). We resolve a REAL place account set for a sample order
 // against devnet to make the "what the SDK did" column concrete.
 import { useEffect, useState } from "react";
-import { Keypair } from "@solana/web3.js";
 import { placeIx, ASK } from "@/lib/orderbook";
-import { askTree, connection, marketId, orderbookProgram, reader, tornaProgram, shorten, MARKET } from "@/lib/market";
+import { askTree, connection, demoKeypair, liveMarkets, marketIdOf, orderbookProgram, reader, tornaProgram, shorten, VENUE } from "@/lib/venue";
 
 const CODE = `import { Tree, keys } from "torna-sdk";
 
@@ -21,13 +20,20 @@ export function DevX() {
   const [accounts, setAccounts] = useState<{ role: string; addr: string }[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // Built against the venue's first listing, so the accounts shown are ones that actually exist
+  // here — a sample keyed to a retired market would send a reader chasing addresses we no longer use.
+  const market = liveMarkets()[0];
+
+  const provisioned = !!market && VENUE.demos.length > 0;
+
   useEffect(() => {
+    if (!provisioned) return;
     (async () => {
       try {
-        const maker = Keypair.fromSecretKey(Uint8Array.from(MARKET.demos[0].secret));
+        const maker = demoKeypair(0);
         const { ix } = await placeIx({
-          reader: reader(connection()), tree: askTree(), orderbook: orderbookProgram(), torna: tornaProgram(),
-          marketId: marketId(), side: ASK, price: 104n, size: 1n, nonce: 99n,
+          reader: reader(connection()), tree: askTree(market), orderbook: orderbookProgram(), torna: tornaProgram(),
+          marketId: marketIdOf(market), side: ASK, price: BigInt(market.seedMid), size: 1n, nonce: 99n,
           maker: maker.publicKey, makerSrc: maker.publicKey, vault: maker.publicKey,
         });
         const roles = ["maker", "book PDA", "torna", "ask header", "maker src", "vault", "token prog", "cfg"];
@@ -36,14 +42,14 @@ export function DevX() {
         setErr(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, []);
+  }, [market, provisioned]);
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-14">
       <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-brand">Build your own on Torna</div>
       <h2 className="display text-2xl font-semibold tracking-tight">From a key to the exact accounts</h2>
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-        This is what an integrating program does, not just TornaDEX. You call with a key; the SDK reads
+        This is what any integrating program does, not just this venue. You call with a key; the SDK reads
         the tree and emits the exact account set. The hard parts (node indices, PDA bumps, the descent
         path, split spares) never leave the library. Below is a real place resolved live on devnet.
       </p>
@@ -59,7 +65,8 @@ export function DevX() {
           </div>
           <div className="divide-y divide-line/60 px-4">
             {err && <div className="py-3 text-xs text-ask">{err}</div>}
-            {!accounts && !err && <div className="py-3 text-xs text-faint">resolving…</div>}
+            {!provisioned && <div className="py-3 text-xs text-faint">no markets provisioned yet</div>}
+            {provisioned && !accounts && !err && <div className="py-3 text-xs text-faint">resolving…</div>}
             {accounts?.map((a, i) => (
               <div key={i} className="flex items-center justify-between py-1.5 text-sm">
                 <span className={a.role.startsWith("path") ? "text-parallel" : "text-muted"}>{a.role}</span>

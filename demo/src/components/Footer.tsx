@@ -1,4 +1,4 @@
-import { MARKET } from "@/lib/market";
+import { VENUE } from "@/lib/venue";
 import { Address } from "./ui/Address";
 import { GithubIcon } from "./ui/GithubIcon";
 
@@ -15,9 +15,9 @@ export function Footer() {
             <a href="https://crates.io/crates/torna-sdk" target="_blank" rel="noreferrer" className="font-medium text-fg transition-colors duration-100 hover:text-brand">torna-sdk (crates.io)</a>
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <span className="flex items-center gap-1.5 text-muted">engine <Address value={MARKET.tornaProgramId} /></span>
-            <span className="flex items-center gap-1.5 text-muted">book <Address value={MARKET.orderbookProgramId} /></span>
-            <span className="flex items-center gap-1.5 text-muted">market <Address value={MARKET.cfg} /></span>
+            <span className="flex items-center gap-1.5 text-muted">engine <Address value={VENUE.tornaProgramId} /></span>
+            <span className="flex items-center gap-1.5 text-muted">book <Address value={VENUE.orderbookProgramId} /></span>
+            <span className="flex items-center gap-1.5 text-muted">quote <Address value={VENUE.quoteMint} /></span>
           </div>
         </div>
         <p className="max-w-md leading-relaxed">

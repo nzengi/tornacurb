@@ -3,12 +3,18 @@
 // Browser trade actions over an Actor abstraction: the actor is either a connected wallet
 // (adapter sendTransaction) or a pre-funded demo identity (local Keypair). Each builds an
 // instruction via the orderbook client, signs, sends + confirms, and returns the tx signature.
+//
+// Every action takes the LiveMarket it applies to — the venue lists eight of them and nothing here
+// may assume a "current" one. Trees, vaults and mints all come off that market.
 import "./polyfill";
 import { Keypair, PublicKey, Transaction, sendAndConfirmTransaction, type Connection } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { keys } from "torna-sdk";
 import { ASK, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "./orderbook";
-import { MARKET, askTree, bidTree, connection, marketId, orderbookProgram, reader, tornaProgram } from "./market";
+import {
+  VENUE, askTree, bidTree, connection, marketIdOf, orderbookProgram, reader, tornaProgram,
+  type LiveMarket,
+} from "./venue";
 
 const N_KEY_COUNT = 2;
 const rdU16 = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint16(o, true);
@@ -49,19 +55,26 @@ export function walletActor(
 
 const ata = (mint: string, owner: PublicKey) => getAssociatedTokenAddressSync(new PublicKey(mint), owner, true);
 
-export async function place(actor: Actor, side: Side, price: bigint, size: bigint): Promise<string> {
-  const tree = side === ASK ? askTree() : bidTree();
-  const makerSrc = side === ASK ? ata(MARKET.baseMint, actor.publicKey) : ata(MARKET.quoteMint, actor.publicKey);
-  const vault = new PublicKey(side === ASK ? MARKET.baseVault : MARKET.quoteVault);
+/** On the ask side you escrow shares; on the bid side you escrow cash. */
+const payMintOf = (m: LiveMarket, side: Side) => (side === ASK ? m.baseMint : VENUE.quoteMint);
+const vaultOf = (m: LiveMarket, side: Side) => new PublicKey(side === ASK ? m.baseVault : m.quoteVault);
+const treeOf = (m: LiveMarket, side: Side) => (side === ASK ? askTree(m) : bidTree(m));
+
+export async function place(actor: Actor, m: LiveMarket, side: Side, price: bigint, size: bigint): Promise<string> {
+  const tree = treeOf(m, side);
+  const makerSrc = ata(payMintOf(m, side), actor.publicKey);
   const r = reader();
   const nonce = BigInt(Date.now());
-  const args = { reader: r, tree, orderbook: orderbookProgram(), torna: tornaProgram(), marketId: marketId(), side, price, size, nonce, maker: actor.publicKey, makerSrc, vault };
+  const args = {
+    reader: r, tree, orderbook: orderbookProgram(), torna: tornaProgram(), marketId: marketIdOf(m),
+    side, price, size, nonce, maker: actor.publicKey, makerSrc, vault: vaultOf(m, side),
+  };
 
   // Route to the cold split path when the target leaf is full (or the tree is empty), so a place
   // never fails with ERR_NEED_SPLIT_SLOT (0x66). The split grows the tree, so subsequent places at
-  // that depth go hot again; the demo self-heals.
+  // that depth go hot again; the book self-heals.
   const h = await tree.header(r);
-  if (!h) throw new Error("market tree not initialized");
+  if (!h) throw new Error(`${m.symbol}: market tree not initialized`);
   let cold = h.height === 0;
   if (!cold) {
     const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, 0n, actor.publicKey, nonce);
@@ -82,34 +95,34 @@ export async function place(actor: Actor, side: Side, price: bigint, size: bigin
   return actor.send(new Transaction().add(ix));
 }
 
-export async function cancel(actor: Actor, side: Side, keyHex: string): Promise<string> {
-  const tree = side === ASK ? askTree() : bidTree();
-  const key = Uint8Array.from(Buffer.from(keyHex, "hex"));
-  const vault = new PublicKey(side === ASK ? MARKET.baseVault : MARKET.quoteVault);
-  const makerDst = side === ASK ? ata(MARKET.baseMint, actor.publicKey) : ata(MARKET.quoteMint, actor.publicKey);
+export async function cancel(actor: Actor, m: LiveMarket, side: Side, keyHex: string): Promise<string> {
   const ix = await cancelIx({
-    reader: reader(), tree, orderbook: orderbookProgram(), torna: tornaProgram(), marketId: marketId(),
-    side, key, maker: actor.publicKey, vault, makerDst,
+    reader: reader(), tree: treeOf(m, side), orderbook: orderbookProgram(), torna: tornaProgram(),
+    marketId: marketIdOf(m), side, key: Uint8Array.from(Buffer.from(keyHex, "hex")),
+    maker: actor.publicKey, vault: vaultOf(m, side), makerDst: ata(payMintOf(m, side), actor.publicKey),
   });
   return actor.send(new Transaction().add(ix));
 }
 
-export async function take(actor: Actor, bookSide: Side, limit: bigint, size: bigint): Promise<{ sig: string; fills: number } | null> {
-  const tree = bookSide === ASK ? askTree() : bidTree();
-  const vault = new PublicKey(bookSide === ASK ? MARKET.baseVault : MARKET.quoteVault);
-  const recvMint = bookSide === ASK ? MARKET.baseMint : MARKET.quoteMint;
-  const payMint = bookSide === ASK ? MARKET.quoteMint : MARKET.baseMint;
+export async function take(
+  actor: Actor, m: LiveMarket, bookSide: Side, limit: bigint, size: bigint,
+): Promise<{ sig: string; fills: number } | null> {
+  // hitting the ASK book buys shares with cash; hitting the BID book sells shares for cash
+  const recvMint = bookSide === ASK ? m.baseMint : VENUE.quoteMint;
+  const payMint = bookSide === ASK ? VENUE.quoteMint : m.baseMint;
   const built = await matchIx({
-    reader: reader(), tree, orderbook: orderbookProgram(), torna: tornaProgram(), marketId: marketId(),
-    bookSide, limit, size, maxFills: 8, taker: actor.publicKey, vault,
-    takerRecv: ata(recvMint, actor.publicKey), takerPay: ata(payMint, actor.publicKey), payMint: new PublicKey(payMint),
+    reader: reader(), tree: treeOf(m, bookSide), orderbook: orderbookProgram(), torna: tornaProgram(),
+    marketId: marketIdOf(m), bookSide, limit, size, maxFills: 8, taker: actor.publicKey,
+    vault: vaultOf(m, bookSide),
+    takerRecv: ata(recvMint, actor.publicKey), takerPay: ata(payMint, actor.publicKey),
+    payMint: new PublicKey(payMint),
   });
   if (!built) return null;
   const sig = await actor.send(new Transaction().add(built.ix));
   return { sig, fills: built.fills.length };
 }
 
-/** Request demo tokens from the faucet for a connected wallet. */
+/** Request mock USDC + fee SOL from the faucet for a connected wallet. */
 export async function requestFaucet(pubkey: PublicKey): Promise<{ sig?: string; alreadyFunded?: boolean }> {
   const res = await fetch("/api/faucet", {
     method: "POST",

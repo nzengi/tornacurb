@@ -4,17 +4,17 @@ import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ASK, BID, type Side } from "@/lib/orderbook";
 import { place, take, type Actor } from "@/lib/actions";
-import { explorerTx } from "@/lib/market";
+import { explorerTx, type LiveMarket } from "@/lib/venue";
 import type { Order } from "@/lib/useBook";
 
 type Toast = { kind: "pending" | "ok" | "err"; msg: string; sig?: string } | null;
 
-export function Trade({ actor, book, onDone }: { actor: Actor | null; book: { asks: Order[]; bids: Order[] }; onDone: () => void }) {
+export function Trade({ actor, market, book, onDone }: { actor: Actor | null; market: LiveMarket; book: { asks: Order[]; bids: Order[] }; onDone: () => void }) {
   const [tab, setTab] = useState<"place" | "take">("place");
   // Track buy/sell INTENT, not book-side, so one color always means one direction. The book side is
   // derived: selling rests/hits asks when placing, hits bids when taking, and vice versa.
   const [dir, setDir] = useState<"buy" | "sell">("sell");
-  const [price, setPrice] = useState("103");
+  const [price, setPrice] = useState(String(market.seedMid));
   const [size, setSize] = useState("3");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -57,9 +57,9 @@ export function Trade({ actor, book, onDone }: { actor: Actor | null; book: { as
     }
   };
 
-  const doPlace = () => run(() => place(actor!, side, BigInt(price), BigInt(size)), `place ${side === ASK ? "ask" : "bid"} ${size}@${price}`);
+  const doPlace = () => run(() => place(actor!, market, side, BigInt(price), BigInt(size)), `place ${side === ASK ? "ask" : "bid"} ${size}@${price}`);
   const doTake = () => run(async () => {
-    const r = await take(actor!, side, BigInt(price), BigInt(size));
+    const r = await take(actor!, market, side, BigInt(price), BigInt(size));
     return r ? r.sig : null;
   }, `${side === ASK ? "buy" : "sell"} ${size} @ limit ${price}`);
 

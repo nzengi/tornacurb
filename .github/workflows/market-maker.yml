@@ -1,0 +1,47 @@
+# Keeps every TornaCurb book quoting on devnet.
+#
+# The venue is on Vercel Hobby, where cron runs once a day — far too slow for a book that should
+# look alive — so the tick lives behind an authenticated endpoint and this workflow is what calls it.
+#
+# One run walks ALL listings rather than one, because Actions bills each job by the started minute:
+# eight separate schedules would cost eight times as much for the same work. Every five minutes is
+# the tightest cron GitHub honours, and scheduled runs are best-effort — they can land late under
+# load, which is fine here. A late re-quote is a stale book, not a broken one.
+name: market maker
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:      # so a human can kick it during a demo
+
+concurrency:
+  group: market-maker     # never let a delayed run overlap the next one
+  cancel-in-progress: false
+
+jobs:
+  quote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Tick every listing
+        env:
+          BASE: ${{ vars.VENUE_URL || 'https://tornacurb.vercel.app' }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SECRET" ]; then echo "CRON_SECRET not set in repo secrets"; exit 1; fi
+          fail=0
+          for s in OPENAI ANTHRO ANDURL NEURA KALSHI POLYMKT NVDA SPY; do
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' --max-time 70 \
+              -X POST -H "authorization: Bearer $SECRET" "$BASE/api/mm?symbol=$s" || echo 000)
+            # a single listing failing must not abort the rest — the others still need quoting
+            if [ "$code" = "200" ]; then
+              echo "$s  $(cat /tmp/out.json)"
+            else
+              echo "$s  HTTP $code  $(cat /tmp/out.json 2>/dev/null | head -c 200)"
+              fail=$((fail+1))
+            fi
+          done
+          echo "---"
+          if [ "$fail" -gt 0 ]; then echo "$fail listing(s) failed"; fi
+          # only fail the run if EVERY listing failed; partial failure is normal devnet noise
+          if [ "$fail" -ge 8 ]; then exit 1; fi

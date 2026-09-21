@@ -12,7 +12,7 @@ import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { ASK, BID, type Side } from "@/lib/orderbook";
 import { cancel, keypairActor, walletActor, requestFaucet, type Actor } from "@/lib/actions";
 import { useBook } from "@/lib/useBook";
-import { connection, demoKeypair, explorerTx, MARKET, reader, shorten } from "@/lib/market";
+import { connection, demoKeypair, explorerTx, liveMarket, reader, shorten, VENUE } from "@/lib/venue";
 import { OrderBook } from "./OrderBook";
 import { Trade } from "./Trade";
 import { RecentTrades } from "./RecentTrades";
@@ -23,8 +23,9 @@ const amount = (d: Uint8Array | null) =>
 // neon-friendly avatar hues, distinct from bid-green / ask-pink so they never read as a side
 const TRADER_COLORS = ["#0088ff", "#9b5cff", "#00d0b0", "#ffb020"];
 
-export function Terminal() {
-  const book = useBook();
+export function Terminal({ symbol }: { symbol: string }) {
+  const market = liveMarket(symbol);
+  const book = useBook(symbol);
   const wallet = useWallet();
   const modal = useWalletModal();
   const connected = wallet.connected && !!wallet.publicKey;
@@ -40,27 +41,27 @@ export function Terminal() {
   let actor: Actor | null = null;
   try {
     if (useWalletAct) actor = walletActor(wallet.publicKey!, wallet.sendTransaction);
-    else if (mode === "demo" && MARKET.demos[idIdx]?.secret) actor = keypairActor(demoKeypair(idIdx));
+    else if (mode === "demo" && VENUE.demos[idIdx]?.secret) actor = keypairActor(demoKeypair(idIdx));
   } catch {
-    actor = null; // malformed demo identity in market.json -> no actor, page still renders
+    actor = null; // malformed demo identity in venue.json -> no actor, page still renders
   }
   const me = actor?.publicKey.toBase58();
 
   // live balances of the acting account (base, quote, SOL)
   useEffect(() => {
-    if (!me) { setBal(null); return; }
+    if (!me || !market) { setBal(null); return; }
     let alive = true;
     (async () => {
       const c = connection();
       const r = reader(c);
       const pk = new PublicKey(me);
-      const baseAta = getAssociatedTokenAddressSync(new PublicKey(MARKET.baseMint), pk, true);
-      const quoteAta = getAssociatedTokenAddressSync(new PublicKey(MARKET.quoteMint), pk, true);
+      const baseAta = getAssociatedTokenAddressSync(new PublicKey(market!.baseMint), pk, true);
+      const quoteAta = getAssociatedTokenAddressSync(new PublicKey(VENUE.quoteMint), pk, true);
       const [bd, qd, sol] = await Promise.all([r.accountData(baseAta), r.accountData(quoteAta), c.getBalance(pk)]);
       if (alive) setBal({ base: amount(bd), quote: amount(qd), sol: sol / 1e9 });
     })().catch(() => { if (alive) setBal(null); });
     return () => { alive = false; };
-  }, [me, balKey]);
+  }, [me, balKey, market]);
 
   const refreshAll = () => { book.refresh(); setBalKey((k) => k + 1); };
 
@@ -81,7 +82,7 @@ export function Terminal() {
     setCancelling(keyHex);
     setMsg({ text: "cancelling order" });
     try {
-      const sig = await cancel(actor, side, keyHex);
+      const sig = await cancel(actor, market!, side, keyHex);
       setMsg({ text: "order cancelled", sig });
       refreshAll();
     } catch (e) {
@@ -160,7 +161,7 @@ export function Terminal() {
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Trade as</div>
             <div className="mt-2 flex flex-wrap gap-2">
-              {MARKET.demos.map((d, i) => (
+              {VENUE.demos.map((d, i) => (
                 <button
                   key={d.pubkey}
                   onClick={() => { setMode("demo"); setIdIdx(i); }}
@@ -201,7 +202,7 @@ export function Terminal() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <OrderBook asks={book.asks} bids={book.bids} loading={book.loading} error={book.error} mine={me} onRetry={book.refresh} />
-        <Trade actor={actor} book={{ asks: book.asks, bids: book.bids }} onDone={refreshAll} />
+        <Trade actor={actor} market={market!} book={{ asks: book.asks, bids: book.bids }} onDone={refreshAll} />
         <div className="rounded-xl border border-line bg-panel">
           <div className="border-b border-line px-4 py-2.5 text-sm font-semibold">Your open orders</div>
           {!actor && <div className="px-4 py-6 text-center text-sm text-faint">pick an account to trade</div>}

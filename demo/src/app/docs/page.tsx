@@ -2,28 +2,30 @@ import Link from "next/link";
 import { TornaDocs, DexDocs, TORNA_TOC, DEX_TOC } from "@/components/DocsContent";
 
 export const metadata = {
-  title: "Docs · Torna and TornaDEX",
+  title: "Docs · TornaCurb and Torna",
   description:
-    "Documentation for Torna, the parallel ordered on-chain index primitive for Solana, and TornaDEX, the reference order book built on it.",
+    "Documentation for TornaCurb, a central limit order book for pre-IPO stock tokens on Solana, and Torna, the parallel ordered on-chain index it runs on.",
 };
 
-// Tabs are driven by the URL (?tab=tornadex), so the whole page stays a server component and the code
+// Tabs are driven by the URL (?tab=torna), so the whole page stays a server component and the code
 // blocks are syntax-highlighted at build time. The tab is shareable and survives reload.
 export default async function DocsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const sp = await searchParams;
-  const tab = sp.tab === "tornadex" ? "tornadex" : "torna";
+  // The venue is the default now; the primitive is one click away. ?tab=tornadex still resolves so
+  // links shared before the rename keep working.
+  const tab = sp.tab === "torna" ? "torna" : "tornacurb";
   const toc = tab === "torna" ? TORNA_TOC : DEX_TOC;
   const tabs: [string, string, string][] = [
-    ["torna", "/docs", "Torna · the primitive"],
-    ["tornadex", "/docs?tab=tornadex", "TornaDEX · reference app"],
+    ["tornacurb", "/docs", "TornaCurb · the venue"],
+    ["torna", "/docs?tab=torna", "Torna · the primitive underneath"],
   ];
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Documentation</p>
       <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted">
-        Two products, documented separately. <span className="font-medium text-fg">Torna</span> is the
-        on-chain index primitive you build on; <span className="font-medium text-fg">TornaDEX</span> is the
-        reference order book built on it.
+        Two layers, documented separately. <span className="font-medium text-fg">TornaCurb</span> is the
+        venue — eight order books for pre-IPO stock tokens. <span className="font-medium text-fg">Torna</span>{" "}
+        is the on-chain index underneath it, which you can build your own sorted state on.
       </p>
       <div className="mt-5 inline-flex rounded-xl border border-line p-1 text-sm">
         {tabs.map(([t, href, label]) => (

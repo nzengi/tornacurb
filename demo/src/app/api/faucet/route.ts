@@ -1,8 +1,13 @@
-// Devnet faucet: mints demo base/quote tokens (+ a little SOL for fees) to a connected wallet so a
-// juror can trade with their OWN wallet. Signs ONLY with the dedicated FAUCET key (never id.json).
+// Devnet faucet: mints mock USDC (+ a little SOL for fees) to a connected wallet so a juror can
+// trade with their OWN wallet. Signs ONLY with the dedicated FAUCET key (never id.json).
 // Server-only (nodejs). Set FAUCET_SECRET in prod; locally reads deploy/faucet-keypair.json.
 //
-// Hardening (adversarial review, 2 rounds): single atomic tx; idempotent on BOTH token balances;
+// Venue note: the faucet dispenses CASH ONLY, never shares. You arrive with USDC and buy stock
+// from the book like anywhere else — which is both the honest market flow and the only thing that
+// fits in one transaction (8 listings x ATA+mintTo would blow the 1232-byte tx limit). The seeded
+// maker identities hold the inventory on the ask side, so there is always something to buy.
+//
+// Hardening (adversarial review, 2 rounds): single atomic tx; idempotent on the quote balance;
 // a reserve floor (incl. rent) so the faucet can never be fully drained; a per-instance daily
 // lamport budget; per-dest + per-IP + global cooldowns recorded before the spend and ROLLED BACK on
 // no-spend branches; generic client errors. NOTE: the cooldown/daily limiters are in-memory (per
@@ -17,22 +22,20 @@ import {
   createAssociatedTokenAccountIdempotentInstruction, createMintToInstruction,
   getAssociatedTokenAddressSync, getAccount,
 } from "@solana/spl-token";
-import market from "@/lib/market.json";
+import venue from "@/lib/venue.json";
 
 export const runtime = "nodejs";
 
-const BASE_AMT = 1000n;
-const QUOTE_AMT = 1_000_000n;
-const SOL_LAMPORTS = 20_000_000;          // 0.02 SOL, enough for many devnet tx fees
-const ATA_RENT = 2_040_000;               // ~rent per token account the faucet creates
-const CALL_COST = SOL_LAMPORTS + 2 * ATA_RENT + 10_000; // true per-call cost (incl. rent + fee)
-const RESERVE_LAMPORTS = 200_000_000;     // never dispense below 0.2 SOL
+const QUOTE_AMT = 1_000_000n;             // mock USDC, enough to buy across several listings
+const SOL_LAMPORTS = 2_000_000;           // 0.002 SOL — ~400 devnet tx fees, not a SOL faucet
+const ATA_RENT = 2_040_000;               // rent for the one token account the faucet may create
+const CALL_COST = SOL_LAMPORTS + ATA_RENT + 10_000; // true per-call cost (incl. rent + fee)
+const RESERVE_LAMPORTS = 100_000_000;     // never dispense below 0.1 SOL
 const MAX_DAILY_LAMPORTS = 1_000_000_000; // per-instance daily dispense cap (~1 SOL/day)
 const DEST_COOLDOWN_MS = 5 * 60_000;      // one top-up per wallet / 5 min
 const IP_COOLDOWN_MS = 30_000;            // one request per IP / 30s
 const GLOBAL_MAX_PER_MIN = 30;            // hard global rate cap
-const FUNDED_BASE = 500n;                 // "already funded" thresholds (skip re-fund)
-const FUNDED_QUOTE = 500_000n;
+const FUNDED_QUOTE = 500_000n;            // "already funded" threshold (skip re-fund)
 
 function faucetKey(): Keypair {
   const env = process.env.FAUCET_SECRET;
@@ -52,6 +55,7 @@ const tooSoon = (m: Map<string, number>, k: string, ms: number, now: number) => 
 
 export async function POST(req: Request) {
   if (Number(req.headers.get("content-length") ?? 0) > 1024) return NextResponse.json({ error: "bad request" }, { status: 413 });
+  if (!venue.quoteMint) return NextResponse.json({ error: "venue not provisioned" }, { status: 503 });
 
   let dest: PublicKey;
   try {
@@ -79,7 +83,6 @@ export async function POST(req: Request) {
   ipSeen.set(ip, now);
   globalHits.push(myHit);
   daySpent += CALL_COST;
-  // undo the dest + global + daily reservations on a no-spend exit (keep the light IP cooldown)
   const rollback = () => {
     destSeen.delete(destStr);
     const i = globalHits.indexOf(myHit);
@@ -88,37 +91,35 @@ export async function POST(req: Request) {
   };
 
   try {
-    const conn = new Connection(process.env.NEXT_PUBLIC_RPC_URL || market.rpcUrl, "confirmed");
+    // server-only route, so prefer the server-only endpoint: a dedicated RPC key belongs in
+    // RPC_URL, never in NEXT_PUBLIC_* which ships to every visitor's browser
+    const conn = new Connection(process.env.RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || venue.rpcUrl, "confirmed");
     const faucet = faucetKey();
-    const baseMint = new PublicKey(market.baseMint);
-    const quoteMint = new PublicKey(market.quoteMint);
-    const baseAta = getAssociatedTokenAddressSync(baseMint, dest);
+    const quoteMint = new PublicKey(venue.quoteMint);
     const quoteAta = getAssociatedTokenAddressSync(quoteMint, dest);
 
-    // idempotent: skip only if the wallet already holds BOTH tokens (so a juror who traded their
-    // quote away can still re-fund). A missing ATA reads as 0.
+    // idempotent: skip if the wallet still holds cash. A trader who spent it all on shares can
+    // re-fund, which is the point. A missing ATA reads as 0.
     const amt = async (a: PublicKey) => { try { return (await getAccount(conn, a)).amount; } catch { return 0n; } };
-    if ((await amt(baseAta)) >= FUNDED_BASE && (await amt(quoteAta)) >= FUNDED_QUOTE) {
+    if ((await amt(quoteAta)) >= FUNDED_QUOTE) {
       rollback();
       return NextResponse.json({ alreadyFunded: true });
     }
 
-    // reserve floor: never drain below 0.2 SOL (true per-call cost incl. rent)
+    // reserve floor: never drain below 0.1 SOL (true per-call cost incl. rent)
     if (await conn.getBalance(faucet.publicKey) < RESERVE_LAMPORTS + CALL_COST) {
       rollback();
       return NextResponse.json({ error: "faucet temporarily out of funds" }, { status: 503 });
     }
 
-    // ONE atomic tx: create ATAs (idempotent) + mint both + transfer SOL, all-or-nothing
+    // ONE atomic tx: create the ATA (idempotent) + mint cash + transfer SOL, all-or-nothing
     const tx = new Transaction().add(
-      createAssociatedTokenAccountIdempotentInstruction(faucet.publicKey, baseAta, dest, baseMint),
       createAssociatedTokenAccountIdempotentInstruction(faucet.publicKey, quoteAta, dest, quoteMint),
-      createMintToInstruction(baseMint, baseAta, faucet.publicKey, BASE_AMT),
       createMintToInstruction(quoteMint, quoteAta, faucet.publicKey, QUOTE_AMT),
       SystemProgram.transfer({ fromPubkey: faucet.publicKey, toPubkey: dest, lamports: SOL_LAMPORTS }),
     );
     const sig = await sendAndConfirmTransaction(conn, tx, [faucet], { commitment: "confirmed" });
-    return NextResponse.json({ sig, base: BASE_AMT.toString(), quote: QUOTE_AMT.toString(), sol: SOL_LAMPORTS / 1e9 });
+    return NextResponse.json({ sig, quote: QUOTE_AMT.toString(), sol: SOL_LAMPORTS / 1e9 });
   } catch (e) {
     rollback(); // the spend didn't land; don't burn the user's dest cooldown
     console.error("faucet error:", e);

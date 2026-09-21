@@ -6,7 +6,7 @@ import { Market } from "@/components/diagrams/Market";
 import { Compare } from "@/components/Compare";
 import { Address } from "@/components/ui/Address";
 import { CodeBlock as Code } from "@/components/ui/CodeBlock";
-import { MARKET, explorerTx } from "@/lib/market";
+import { VENUE, liveMarkets, explorerTx } from "@/lib/venue";
 import tx from "@/lib/sample-tx.json";
 
 function H({ id, kicker, children }: { id: string; kicker?: string; children: React.ReactNode }) {
@@ -114,7 +114,7 @@ export function TornaDocs() {
           to different leaves carry disjoint write sets and the Sealevel scheduler runs them in the same
           slot; and the SDK resolves the exact accounts off-chain. It is a generic index primitive, not a
           matching engine. The engine is written in C for SBF. Build any sorted state with concurrent
-          writers on it; the TornaDEX tab is one worked example.
+          writers on it; the TornaCurb tab is one worked example.
         </P>
         <Note>
           Torna parallelizes <span className="text-fg">maintenance</span> (writes to different leaves),
@@ -147,7 +147,7 @@ export function TornaDocs() {
           {[
             ["Torna engine", "C / SBF", "The parallel ordered B+ tree, one node per account. 15 instructions."],
             ["torna-cpi", "Rust / SBF", "invoke_signed helpers so a program drives Torna as a book-authority PDA."],
-            ["orderbook (TornaDEX)", "Rust / SBF", "Two-sided escrow CLOB: a market = two trees + vaults, place/cancel/match."],
+            ["orderbook (TornaCurb)", "Rust / SBF", "Two-sided escrow CLOB: a market = two trees + vaults, place/cancel/match."],
             ["torna-sdk (Rust)", "Rust client", "The PathPlanner: key-based ix builders, accounts resolved off-chain. On crates.io."],
             ["torna-sdk (npm)", "TypeScript", "1:1 port of the Rust SDK, byte-equivalent. On npm."],
             ["cpi-probe", "Rust / SBF", "Composability proof: a program CPIs InsertFast and parallelism survives."],
@@ -431,7 +431,7 @@ const ix = await tree.insertFastIx(reader, authority, key, value);
         <P>
           The engine and SDK went through in-house adversarial review to convergence (rounds until two
           consecutive clean passes), with independent skeptics attacking from distinct angles. (The
-          orderbook&apos;s own review is in the TornaDEX tab.)
+          orderbook&apos;s own review is in the TornaCurb tab.)
         </P>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {[
@@ -536,7 +536,7 @@ make ts           # TS SDK: golden vectors + bankrun e2e (12/12)`}</Code>
           <a className="hover:text-brand" href="https://github.com/nzengi/torna" target="_blank" rel="noreferrer">GitHub</a>
           <a className="hover:text-brand" href="https://www.npmjs.com/package/torna-sdk" target="_blank" rel="noreferrer">torna-sdk on npm</a>
           <a className="hover:text-brand" href="https://crates.io/crates/torna-sdk" target="_blank" rel="noreferrer">torna-sdk on crates.io</a>
-          <a className="hover:text-brand" href={`https://explorer.solana.com/address/${MARKET.tornaProgramId}?cluster=devnet`} target="_blank" rel="noreferrer">engine on explorer</a>
+          <a className="hover:text-brand" href={`https://explorer.solana.com/address/${VENUE.tornaProgramId}?cluster=devnet`} target="_blank" rel="noreferrer">engine on explorer</a>
         </div>
       </section>
     </article>
@@ -544,20 +544,24 @@ make ts           # TS SDK: golden vectors + bankrun e2e (12/12)`}</Code>
 }
 
 export function DexDocs() {
+  // The venue's first listing stands in wherever the docs need one concrete market to point at.
+  const first = liveMarkets()[0];
+
   return (
     <article className="min-w-0 max-w-3xl space-y-16">
       <header>
         <h1 className="display text-4xl font-semibold tracking-tight">
-          <span className="text-gradient">TornaDEX</span>, the reference app
+          <span className="text-gradient">TornaCurb</span>, the venue
         </h1>
         <P>
-          TornaDEX is a central limit order book built entirely on Torna, the reference integration that
-          proves the primitive end to end. A market is two Torna trees (ask + bid) plus SPL-Token escrow,
-          owned by a book PDA. Place, cancel, and match are real on-chain transactions. This tab documents
-          how the CLOB maps onto the index; the Torna tab documents the index itself.
+          TornaCurb is a central limit order book for pre-IPO stock tokens, built entirely on Torna. A
+          listing is two Torna trees (ask + bid) plus SPL-Token escrow, owned by a book PDA; the venue
+          runs eight of them against one shared quote mint. Place, cancel and match are real on-chain
+          transactions. This tab documents how the CLOB maps onto the index; the Torna tab documents the
+          index itself.
         </P>
         <Note>
-          TornaDEX parallelizes book <span className="text-fg">maintenance</span> (maker place and cancel
+          TornaCurb parallelizes book <span className="text-fg">maintenance</span> (maker place and cancel
           across prices), not matching. Top-of-book matching is price-time serial and nothing can change
           that. In a liquid, maker-heavy book, maker traffic dominates, so the parallel win still carries.
         </Note>
@@ -574,13 +578,13 @@ export function DexDocs() {
 
       <section>
         <H id="live" kicker="Proof">Live on devnet, with a real transaction</H>
-        <P>Both programs are deployed and a market is initialized and seeded. Every address opens on the Solana Explorer.</P>
+        <P>Both programs are deployed and all eight listings are initialized and seeded. The programs and the shared quote mint are venue-wide; each listing has its own cfg, book PDA, trees and vaults, which the <a className="text-brand hover:text-brand-hi" href="/explorer">explorer</a> decodes per listing. Every address opens on the Solana Explorer.</P>
         <div className="mt-4 divide-y divide-line/60 rounded-xl border border-line bg-panel px-4">
           {[
-            ["Torna engine program", MARKET.tornaProgramId],
-            ["Orderbook program", MARKET.orderbookProgramId],
-            ["Market config (cfg)", MARKET.cfg],
-            ["Book authority (PDA)", MARKET.book],
+            ["Torna engine program", VENUE.tornaProgramId],
+            ["Orderbook program", VENUE.orderbookProgramId],
+            ["Quote mint (venue-wide)", VENUE.quoteMint],
+            [`${first?.symbol ?? "First"} market config (cfg)`, first?.cfg ?? ""],
           ].map(([k, v]) => (
             <div key={k} className="flex items-center justify-between py-2.5 text-sm">
               <span className="text-muted">{k}</span><Address value={v} />
@@ -608,7 +612,7 @@ export function DexDocs() {
           <a href={explorerTx(tx.signature)} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm text-brand hover:text-brand-hi">View this transaction on the Solana Explorer</a>
         </div>
         <P>
-          The inner <span className="nums text-fg">Program {MARKET.tornaProgramId.slice(0, 4)}... invoke [2]</span> line
+          The inner <span className="nums text-fg">Program {VENUE.tornaProgramId.slice(0, 4)}... invoke [2]</span> line
           is the Torna engine running InsertFast as a CPI from the book authority PDA, consuming roughly 3k
           compute units (below the CU table's worst cases, since this tree is shallow with a small value);
           the whole place costs ~11k CU and a 5000-lamport fee.
@@ -697,8 +701,8 @@ export function DexDocs() {
           rejected before any token moves.
         </P>
         <Note>
-          In-house adversarial review is not an external audit, which is pending. Treat TornaDEX as a
-          devnet reference, not a production-audited exchange.
+          In-house adversarial review is not an external audit, which is pending. Treat TornaCurb as a
+          devnet venue, not a production-audited exchange.
         </Note>
       </section>
     </article>

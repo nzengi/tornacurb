@@ -10,10 +10,10 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://torna.vercel.app"),
-  title: "Torna, a parallel ordered on-chain index for Solana",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://tornacurb.vercel.app"),
+  title: "TornaCurb, a central limit order book for pre-IPO stock tokens",
   description:
-    "Torna is a parallel, ordered, on-chain index primitive for Solana: a sorted B+ tree where every node is its own account, so writes to different leaves run in the same slot. Build order books, queues, leaderboards, and governance on it. TornaDEX is the live reference order book.",
+    "Nobody publishes a price for OpenAI stock, so an AMM has nothing to quote against. TornaCurb is a central limit order book for pre-IPO stock tokens on Solana, built on Torna: every B+ tree node is its own account, so quotes at different price levels commit in the same slot.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

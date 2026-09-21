@@ -8,7 +8,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownUp, Boxes, ExternalLink, RefreshCw, Search } from "lucide-react";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { keys, type Tree, type Header, type AccountReader } from "torna-sdk";
-import { askTree, bidTree, connection, reader, MARKET, explorerAddr, explorerTx, shorten } from "@/lib/market";
+import { askTree, bidTree, connection, reader, VENUE, liveMarket, explorerAddr, explorerTx, shorten, type LiveMarket } from "@/lib/venue";
 import { Address } from "./ui/Address";
 
 const NODE_HDR = 44, N_KEY_COUNT = 2, N_NEXT_LEAF = 20, KEY = 32;
@@ -91,7 +91,7 @@ async function inspect(conn: Connection, pk: PublicKey): Promise<Decoded | { kin
       ["amount", u64le(d, 64).toLocaleString()],
     ] };
   }
-  if (owner === MARKET.tornaProgramId) {
+  if (owner === VENUE.tornaProgramId) {
     if (d.length >= 146 && u32le(d, 0) === TORNA_MAGIC) {
       return { kind: "Torna tree header", fields: [
         ["version", String(u16le(d, 4))], ["fanout", String(u16le(d, 48))], ["value size", `${u16le(d, 46)} B`],
@@ -133,16 +133,19 @@ function FieldRows({ rows }: { rows: [string, string][] }) {
     </div>
   );
 }
-function AccountsTable({ ov }: { ov: Overview | null }) {
+function AccountsTable({ ov, market }: { ov: Overview | null; market: LiveMarket }) {
+  // Per-listing accounts, except the quote mint: one mock USDC is shared by the whole venue, so a
+  // balance funded once trades everywhere. The vaults are still per listing — they are the book
+  // PDA's own token accounts.
   const rows: [string, string, string][] = [
-    ["Market config (cfg)", MARKET.cfg, "bound mints + vaults + book"],
-    ["Book authority (PDA)", MARKET.book, "sole writer of both trees"],
-    ["Ask tree header", askTree().headerPda()[0].toBase58(), "ascending price"],
-    ["Bid tree header", bidTree().headerPda()[0].toBase58(), "descending price"],
-    ["Base mint", MARKET.baseMint, ov ? `${ov.baseDec} decimals` : ""],
-    ["Quote mint", MARKET.quoteMint, ov ? `${ov.quoteDec} decimals` : ""],
-    ["Base vault (escrow)", MARKET.baseVault, ov ? `${ov.baseVault} base locked` : ""],
-    ["Quote vault (escrow)", MARKET.quoteVault, ov ? `${ov.quoteVault} quote locked` : ""],
+    ["Market config (cfg)", market.cfg, `market ${market.marketId} · bound mints + vaults + book`],
+    ["Book authority (PDA)", market.book, "sole writer of both trees"],
+    ["Ask tree header", askTree(market).headerPda()[0].toBase58(), `tree ${market.askTreeId} · ascending price`],
+    ["Bid tree header", bidTree(market).headerPda()[0].toBase58(), `tree ${market.bidTreeId} · descending price`],
+    [`${market.symbol} mint`, market.baseMint, ov ? `${ov.baseDec} decimals` : ""],
+    ["Quote mint (venue-wide)", VENUE.quoteMint, ov ? `${ov.quoteDec} decimals` : ""],
+    [`${market.symbol} vault (escrow)`, market.baseVault, ov ? `${ov.baseVault} locked` : ""],
+    ["Quote vault (escrow)", market.quoteVault, ov ? `${ov.quoteVault} locked` : ""],
   ];
   return (
     <div className="overflow-x-auto rounded-xl border border-line">
@@ -325,7 +328,7 @@ async function decodeTx(conn: Connection, sig: string): Promise<TxInfo | null> {
   const instrs = msg.compiledInstructions ?? msg.instructions ?? [];
   let op = -1;
   for (const ins of instrs) {
-    if (keysArr[ins.programIdIndex]?.toBase58() === MARKET.orderbookProgramId) {
+    if (keysArr[ins.programIdIndex]?.toBase58() === VENUE.orderbookProgramId) {
       const d = ins.data as Uint8Array | string;
       const byte0 = typeof d === "string" ? b58decode(d)[0] : d[0];
       op = byte0; break;
@@ -336,7 +339,7 @@ async function decodeTx(conn: Connection, sig: string): Promise<TxInfo | null> {
     op: op >= 0 && op < OPS.length ? OPS[op] : "Transaction",
     cu: meta?.computeUnitsConsumed ?? null, fee: meta?.fee ?? 0, status: meta?.err ? "failed" : "success",
     tokenCalls: logs.filter((l) => l.includes(TOKEN_PROGRAM) && l.includes("invoke")).length,
-    tornaCalls: logs.filter((l) => l.includes(MARKET.tornaProgramId) && l.includes("invoke")).length,
+    tornaCalls: logs.filter((l) => l.includes(VENUE.tornaProgramId) && l.includes("invoke")).length,
     logs,
   };
 }
@@ -416,7 +419,8 @@ function RecentTxns() {
   );
 }
 
-export function Explorer() {
+export function Explorer({ symbol }: { symbol: string }) {
+  const market = liveMarket(symbol);
   const [ask, setAsk] = useState<SideView | null>(null);
   const [bid, setBid] = useState<SideView | null>(null);
   const [ov, setOv] = useState<Overview | null>(null);
@@ -427,17 +431,18 @@ export function Explorer() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!market) return;
     setLoading(true);
     try {
       const r = reader(connection());
       const [a, b, bv, qv, bd, qd] = await Promise.all([
-        readSide(r, askTree(), keys.Side.Ask), readSide(r, bidTree(), keys.Side.Bid),
-        tokenAmount(r, MARKET.baseVault), tokenAmount(r, MARKET.quoteVault),
-        mintDecimals(r, MARKET.baseMint), mintDecimals(r, MARKET.quoteMint),
+        readSide(r, askTree(market), keys.Side.Ask), readSide(r, bidTree(market), keys.Side.Bid),
+        tokenAmount(r, market.baseVault), tokenAmount(r, market.quoteVault),
+        mintDecimals(r, market.baseMint), mintDecimals(r, VENUE.quoteMint),
       ]);
       setAsk(a); setBid(b); setOv({ baseVault: bv, quoteVault: qv, baseDec: bd, quoteDec: qd }); setError(null);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); }
-  }, []);
+  }, [market]);
   useEffect(() => { load(); const id = setInterval(() => { if (!document.hidden) load(); }, 20000); const v = () => { if (!document.hidden) load(); }; document.addEventListener("visibilitychange", v); return () => { clearInterval(id); document.removeEventListener("visibilitychange", v); }; }, [load]);
 
   // resolve a pasted address into a decoded account view
@@ -499,7 +504,7 @@ export function Explorer() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-        <AccountsTable ov={ov} />
+        <AccountsTable ov={ov} market={market!} />
         <RecentTxns />
       </div>
 

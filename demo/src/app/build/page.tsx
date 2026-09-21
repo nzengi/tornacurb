@@ -4,7 +4,7 @@ import { GithubIcon } from "@/components/ui/GithubIcon";
 import { CodeBlock as Code } from "@/components/ui/CodeBlock";
 import { Address } from "@/components/ui/Address";
 import { LangProvider, LangToggle, DualCode } from "@/components/ui/LangTabs";
-import { MARKET } from "@/lib/market";
+import { VENUE } from "@/lib/venue";
 
 export const metadata = {
   title: "Build on Torna",
@@ -73,7 +73,7 @@ cargo add torna-sdk solana-sdk       # Rust client`}</Code>
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <code className="nums rounded bg-panel-hi px-1.5 py-0.5 text-[13px] text-fg">program</code>
                   <span className="text-muted">the Torna engine program. On devnet:</span>
-                  <Address value={MARKET.tornaProgramId} />
+                  <Address value={VENUE.tornaProgramId} />
                 </div>
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <code className="nums rounded bg-panel-hi px-1.5 py-0.5 text-[13px] text-fg">creator</code>

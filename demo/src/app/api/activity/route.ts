@@ -3,7 +3,7 @@
 // Each decoded tx is cached by signature, so only NEW signatures are fetched; the list has a short TTL.
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
-import market from "@/lib/market.json";
+import venue from "@/lib/venue.json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const TTL_MS = 12_000;
 const conn = new Connection(RPC, "confirmed");
-const OB = new PublicKey(market.orderbookProgramId);
+// one orderbook program serves every listing, so this feed is venue-wide by construction
+const OB = new PublicKey(venue.orderbookProgramId);
 const ASK = 0, BID = 1;
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -36,7 +37,7 @@ async function decodeOne(sig: string): Promise<Decoded | null> {
   const keysArr = msg.staticAccountKeys ?? msg.accountKeys ?? [];
   const instrs = msg.compiledInstructions ?? msg.instructions ?? [];
   for (const ins of instrs) {
-    if (keysArr[ins.programIdIndex]?.toBase58() === market.orderbookProgramId) {
+    if (keysArr[ins.programIdIndex]?.toBase58() === venue.orderbookProgramId) {
       const d = ins.data as Uint8Array | string;
       const data = typeof d === "string" ? b58decode(d) : d;
       if (data.length < 1) return null;

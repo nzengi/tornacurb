@@ -1,115 +1,150 @@
 import Link from "next/link";
-import { ArrowRight, BarChart3, Boxes, Code2, Compass, FileText, ListOrdered, Trophy, Vote } from "lucide-react";
+import { ArrowRight, Gauge, LineChart, Scale } from "lucide-react";
 import { GithubIcon } from "@/components/ui/GithubIcon";
 import { LiveMarket } from "@/components/LiveMarket";
 import { Parallelism } from "@/components/Parallelism";
+import { WhyBook } from "@/components/WhyBook";
+import { LISTINGS } from "@/lib/listings";
 
 const GH = "https://github.com/nzengi/torna";
 
 export default function Home() {
+  const preipo = LISTINGS.filter((l) => l.kind === "preipo");
+  const listed = LISTINGS.filter((l) => l.kind === "listed");
+
   return (
     <>
-      {/* Hero: problem first, then the insight */}
+      {/* Hero: the asset has no price anywhere. That is the whole product. */}
       <section className="relative overflow-hidden border-b border-line">
         <div className="hero-glow pointer-events-none absolute inset-0 -z-10" aria-hidden />
         <div className="mx-auto max-w-3xl px-6 pt-24 pb-16 text-center">
-          <p className="enter text-xs font-semibold uppercase tracking-[0.2em] text-brand">An on-chain index primitive for Solana</p>
+          <p className="enter text-xs font-semibold uppercase tracking-[0.2em] text-brand">Pre-IPO stock tokens, on an order book</p>
           <h1 className="enter display mt-4 text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl" style={{ animationDelay: "70ms" }}>
-            Sorted on-chain state that <span className="text-gradient">writes in parallel</span>.
+            Nobody publishes a price for <span className="text-gradient">OpenAI stock</span>.
           </h1>
           <p className="enter mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted" style={{ animationDelay: "140ms" }}>
-            On Solana, keeping state sorted usually means one giant account that serializes every write,
-            plus an off-chain indexer to read it back. <span className="font-medium text-fg">Torna</span> is
-            a B+ tree with one node per account, so writes that land in different leaves commit in the same
-            slot. No slab, no indexer.
+            An automated market maker needs a price to quote against. An order book does not — it discovers
+            the price from the orders themselves. <span className="font-medium text-fg">TornaCurb</span> is
+            the venue for the assets that do not have one.
           </p>
           <div className="enter mt-8 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "210ms" }}>
-            <Link href="/build" className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-medium text-onbrand transition-colors duration-100 hover:bg-brand-hi active:translate-y-px">
-              Build on Torna <ArrowRight className="h-4 w-4" aria-hidden />
+            <Link href="/trade" className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-medium text-onbrand transition-colors duration-100 hover:bg-brand-hi active:translate-y-px">
+              Open the markets <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
-            <Link href="/docs" className="inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-5 py-2.5 text-sm font-medium text-fg transition-colors duration-100 hover:border-muted active:translate-y-px">
-              Read the docs
+            <Link href="/research" className="inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-5 py-2.5 text-sm font-medium text-fg transition-colors duration-100 hover:border-muted active:translate-y-px">
+              Why an order book
             </Link>
           </div>
-          <p className="mt-5 text-xs text-faint">Live on devnet · SDKs on npm and crates.io · internally reviewed, external audit pending</p>
+          <p className="mt-5 text-xs text-faint">Live on devnet · real SPL escrow, no indexer · external audit pending</p>
         </div>
       </section>
 
-      {/* The moat: parallelism, with the honest caveat (4.6-7.1x lives here) */}
-      <Parallelism />
+      {/* Where the name comes from — the thesis in one anecdote */}
+      <section className="mx-auto max-w-3xl px-6 py-14 text-center">
+        <p className="text-[15px] leading-relaxed text-muted">
+          Before a company was listed on the New York Stock Exchange, its shares traded <em className="text-fg not-italic">on the curb</em> —
+          literally on the sidewalk outside the exchange. The Curb Market existed for one reason: there were
+          shares people wanted to trade, and no exchange willing to list them. That gap is open again.
+        </p>
+      </section>
 
-      {/* What you build on it */}
+      {/* The problem, computed rather than asserted */}
+      <WhyBook />
+
+      {/* The venue */}
       <section className="mx-auto max-w-6xl px-6 py-16">
-        <div className="text-center">
-          <h2 className="display text-3xl font-semibold tracking-tight">Build anything sorted</h2>
-          <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-muted">
-            Anything that needs sorted state with many concurrent writers maps onto one tree. You choose
-            what the key and value mean.
-          </p>
+        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-12">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">The venue</div>
+            <h2 className="display mt-2 text-3xl font-semibold tracking-tight">Eight listings, two kinds</h2>
+            <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-muted">
+              The split is the argument. Private companies have no oracle anywhere, so the book is the only
+              price. The listed pair is a control group: where a known-good price exists, you can watch how
+              closely the book tracks it — and only then is it reasonable to trust the same machinery where
+              no price exists at all.
+            </p>
+
+            <div className="mt-6">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Pre-IPO · no oracle exists</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {preipo.map((l) => (
+                  <span key={l.symbol} className="rounded-lg border border-line bg-panel px-3 py-1.5">
+                    <span className="text-sm font-semibold text-fg">{l.symbol}</span>
+                    <span className="ml-2 text-[11px] text-faint">{l.name}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Listed · Pyth reference, used to check the book</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {listed.map((l) => (
+                  <span key={l.symbol} className="rounded-lg border border-line bg-panel px-3 py-1.5">
+                    <span className="text-sm font-semibold text-fg">{l.symbol}</span>
+                    <span className="ml-2 text-[11px] text-faint">{l.name}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 lg:mt-0"><LiveMarket /></div>
         </div>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      </section>
+
+      {/* What an order book buys you that a pool cannot */}
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <div className="grid gap-4 sm:grid-cols-3">
           {[
-            { icon: BarChart3, t: "Order books", d: "Price-time priority, parallel maker quotes (matching stays serial), real escrow." },
-            { icon: ListOrdered, t: "Liquidation queues", d: "Sorted by health; keepers pop the worst, borrowers update in parallel." },
-            { icon: Trophy, t: "Leaderboards", d: "Top-N with cheap reads and concurrent score updates." },
-            { icon: Vote, t: "Governance", d: "Sorted stake or votes, queryable on-chain without an indexer." },
-            { icon: Boxes, t: "Expiry queues", d: "Ordered by deadline; the soonest to expire is the leftmost leaf." },
-            { icon: Code2, t: "Your sorted index", d: "Generic key to value, value up to 128 bytes per entry." },
+            { icon: Scale, t: "Real limit orders", d: "“Buy at 180 or better” is the most basic instruction in equities. A curve cannot express it; a book is made of them." },
+            { icon: Gauge, t: "Price-time priority", d: "The maker who quotes first and tightest gets filled first. That is what makes anyone quote tight." },
+            { icon: LineChart, t: "Makers keep their edge", d: "A pool cannot move its quote when the world reprices, so it gets picked off. A maker cancels and re-quotes." },
           ].map((c) => (
-            <div key={c.t} className="rounded-xl border border-line bg-panel p-5 transition-colors duration-150 hover:border-brand/40">
+            <div key={c.t} className="rounded-xl border border-line bg-panel p-5">
               <c.icon className="h-5 w-5 text-brand" aria-hidden />
               <h3 className="mt-3 text-sm font-semibold text-fg">{c.t}</h3>
               <p className="mt-1.5 text-sm leading-relaxed text-muted">{c.d}</p>
             </div>
           ))}
         </div>
-        <div className="mt-8 text-center">
-          <Link href="/build" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:text-brand-hi">See how to build one, in TypeScript or Rust <ArrowRight className="h-4 w-4" aria-hidden /></Link>
-        </div>
       </section>
 
-      {/* Proof it works: TornaDEX (subordinate, the reference integration) */}
-      <section className="border-y border-line bg-bg-soft">
-        <div className="mx-auto max-w-6xl px-6 py-16 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Proof it works</div>
-            <h2 className="display mt-2 text-3xl font-semibold tracking-tight">We built a full order book on it</h2>
-            <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-muted">
-              TornaDEX is a central limit order book built entirely on Torna: real SPL-token escrow, place,
-              cancel, and match as real on-chain transactions, live on devnet. It is the reference
-              integration that proves the primitive end to end, not the product.
-            </p>
-            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <Link href="/trade" className="inline-flex items-center gap-1.5 font-medium text-brand hover:text-brand-hi">Trade it live <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
-              <Link href="/explorer" className="text-muted hover:text-fg">Inspect the on-chain trees</Link>
-            </div>
-          </div>
-          <div className="mt-8 lg:mt-0"><LiveMarket /></div>
+      {/* Why this is even possible on Solana — the engine, kept underneath */}
+      <section className="mx-auto max-w-6xl px-6 pt-4">
+        <div className="max-w-2xl">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Under the hood</div>
+          <h2 className="display mt-2 text-3xl font-semibold tracking-tight">Why Solana could not do this before</h2>
+          <p className="mt-4 text-[15px] leading-relaxed text-muted">
+            The classic on-chain book puts the whole thing in one account per side, so every maker write
+            serialises: one writer per slot, however many quotes arrive. TornaCurb runs on{" "}
+            <a href={GH} target="_blank" rel="noreferrer" className="font-medium text-brand hover:text-brand-hi">Torna</a>,
+            our own open-source index, where every B+ tree node is its own account — quotes at different
+            price levels touch different leaves and commit together.
+          </p>
         </div>
       </section>
+      <Parallelism />
 
-      {/* Explore */}
+      {/* Go deeper */}
       <section className="mx-auto max-w-6xl px-6 py-16">
-        <h2 className="display text-center text-2xl font-semibold tracking-tight">Go deeper</h2>
+        <h2 className="display text-center text-2xl font-semibold tracking-tight">Look under it yourself</h2>
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { icon: Code2, t: "Build", d: "A code-first guide, TypeScript or Rust.", href: "/build" },
-            { icon: FileText, t: "Docs", d: "The primitive and the reference app, in full.", href: "/docs" },
-            { icon: BarChart3, t: "Research", d: "Motivation, the model, and the measured numbers.", href: "/research" },
-            { icon: Compass, t: "Explorer", d: "Decode the live on-chain trees and transactions.", href: "/explorer" },
+            { t: "Markets", d: "Trade all eight listings on devnet.", href: "/trade" },
+            { t: "Why a book", d: "The market-structure case, in full.", href: "/research" },
+            { t: "Explorer", d: "Decode the live on-chain trees and transactions.", href: "/explorer" },
+            { t: "Docs", d: "The venue and the primitive underneath it.", href: "/docs" },
           ].map((c) => (
             <Link key={c.t} href={c.href} className="group rounded-xl border border-line bg-panel p-5 transition-colors duration-150 hover:border-brand/40">
-              <c.icon className="h-5 w-5 text-brand" aria-hidden />
-              <div className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-fg">{c.t} <ArrowRight className="h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100" aria-hidden /></div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-fg">{c.t} <ArrowRight className="h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100" aria-hidden /></div>
               <p className="mt-1 text-[13px] leading-relaxed text-muted">{c.d}</p>
             </Link>
           ))}
         </div>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted">
-          <a href={GH} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-brand"><GithubIcon className="h-4 w-4" /> GitHub</a>
-          <a href="https://www.npmjs.com/package/torna-sdk" target="_blank" rel="noreferrer" className="hover:text-brand">torna-sdk on npm</a>
-          <a href="https://crates.io/crates/torna-sdk" target="_blank" rel="noreferrer" className="hover:text-brand">torna-sdk on crates.io</a>
-          <code className="nums rounded border border-line bg-panel px-2.5 py-1 text-xs text-muted">npm i torna-sdk</code>
+          <a href={GH} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-brand"><GithubIcon className="h-4 w-4" /> Torna on GitHub</a>
+          <span className="text-faint">TornaCurb is built on Torna, our own open-source primitive.</span>
         </div>
       </section>
     </>

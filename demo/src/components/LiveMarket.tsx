@@ -5,9 +5,12 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { useBook } from "@/lib/useBook";
+import { liveMarkets } from "@/lib/venue";
 
 export function LiveMarket() {
-  const { asks, bids, loading, error } = useBook();
+  // the hero shows whichever listing sits first in the venue table
+  const first = liveMarkets()[0];
+  const { asks, bids, loading, error } = useBook(first?.symbol ?? "");
   const bestAsk = asks[0]?.price;
   const bestBid = bids[0]?.price;
   const spread = bestAsk !== undefined && bestBid !== undefined ? bestAsk - bestBid : undefined;
@@ -21,7 +24,7 @@ export function LiveMarket() {
   return (
     <div className="glass neon-glow rounded-2xl p-5">
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-sm font-semibold text-fg">TornaDEX, live on devnet</span>
+        <span className="text-sm font-semibold text-fg">{first?.symbol ?? "The book"}, live on devnet</span>
         <span className="flex items-center gap-1.5 text-xs text-faint">
           <span className={`h-1.5 w-1.5 rounded-full ${dot} ${loading ? "animate-pulse" : ""}`} aria-hidden />
           {status}

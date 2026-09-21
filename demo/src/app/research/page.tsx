@@ -2,11 +2,11 @@ import { BTree } from "@/components/diagrams/BTree";
 import { OrderKey } from "@/components/diagrams/OrderKey";
 import { Throughput } from "@/components/diagrams/Throughput";
 import { Compare } from "@/components/Compare";
-import { MARKET, explorerTx } from "@/lib/market";
+import { VENUE, explorerTx } from "@/lib/venue";
 import tx from "@/lib/sample-tx.json";
 
 export const metadata = {
-  title: "Research · Torna",
+  title: "Engineering research · Torna, the index under TornaCurb",
   description:
     "A research writeup of Torna: motivation, existing on-chain order-book designs and their bottlenecks, the three scarce resources, the design space explored, the Torna design, de-risking spikes, evaluation, and open problems.",
 };
@@ -87,7 +87,7 @@ export default function ResearchPage() {
 
       <article className="min-w-0 max-w-3xl">
         <header className="border-b border-line pb-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Research</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Engineering research · the index under TornaCurb</p>
           <h1 className="display mt-2 text-4xl font-semibold leading-tight tracking-tight">
             Torna: a parallel, ordered <span className="text-gradient">index primitive</span> for Solana
           </h1>
@@ -95,6 +95,10 @@ export default function ResearchPage() {
             Motivation, prior designs and their bottlenecks, the constraints that bound the problem, the
             design space we explored, the Torna design, how we de-risked it, what we measured, and what
             remains open. Every number here is reproducible from the repository.
+          </p>
+          <p className="mt-3 text-[15px] leading-relaxed text-muted">
+            This is the engine, not the venue. For the market-structure case — why a pre-IPO stock token
+            belongs on a book rather than a curve — see <a href="/why" className="font-medium text-brand hover:text-brand-hi">Why an order book</a>.
           </p>
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
             <a className="hover:text-brand" href="https://github.com/nzengi/torna" target="_blank" rel="noreferrer">GitHub</a>
@@ -493,7 +497,7 @@ export default function ResearchPage() {
               so the runtime can parallelize it. Torna is that primitive, a high-fanout B+ tree with one
               node per account, a hot path that never locks the header, a tenant binding that survived
               adversarial review, and a client that hides account resolution entirely. The reference order
-              book, TornaDEX, is the proof that it works end to end on devnet today. The contribution is not
+              book, TornaCurb, is the proof that it works end to end on devnet today. The contribution is not
               the B+ tree, which is textbook; it is the layout chosen against Solana&apos;s three
               constraints, the correctness work behind it, and the SDK that makes it usable, packaged as a
               primitive others can build on rather than rebuild.
@@ -508,9 +512,9 @@ export default function ResearchPage() {
               {[
                 ["Source (engine, SDKs, orderbook, benchmark)", "https://github.com/nzengi/torna"],
                 ["torna-sdk on npm", "https://www.npmjs.com/package/torna-sdk"],
-                ["Live demo (TornaDEX on devnet)", "/trade"],
+                ["Live demo (TornaCurb on devnet)", "/trade"],
                 ["On-chain explorer", "/explorer"],
-                ["Engine program on Solana Explorer", `https://explorer.solana.com/address/${MARKET.tornaProgramId}?cluster=devnet`],
+                ["Engine program on Solana Explorer", `https://explorer.solana.com/address/${VENUE.tornaProgramId}?cluster=devnet`],
                 ["A captured PlaceOrder transaction", explorerTx(tx.signature)],
               ].map(([label, href]) => (
                 <a key={label} href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="rounded-lg border border-line bg-panel px-4 py-2.5 text-muted transition-colors duration-100 hover:border-brand/40 hover:text-fg">

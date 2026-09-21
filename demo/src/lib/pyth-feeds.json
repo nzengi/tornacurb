@@ -1,0 +1,12 @@
+{
+  "NVDA": {
+    "id": "b1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593",
+    "symbol": "Equity.US.NVDA/USD",
+    "description": "NVIDIA CORP / US DOLLAR"
+  },
+  "SPY": {
+    "id": "19e09bb805456ada3979a7d1cbb4b6d63babc3a0f8e8a9509f68afa5c4c11cd5",
+    "symbol": "Equity.US.SPY/USD",
+    "description": "SPY / US DOLLAR"
+  }
+}
