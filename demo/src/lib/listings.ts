@@ -1,8 +1,11 @@
 // The TornaCurb listing table — the single source for what trades on the venue.
 //
 // Two kinds of listing, and the difference is the whole product thesis:
-//   "preipo" — a private company. There is no public market and therefore no oracle: nothing
-//              anywhere publishes a price for OpenAI stock. The book IS the price discovery.
+//   "preipo" — a private company. There is no exchange, so no price is formed anywhere. For most
+//              of these names nothing publishes a price at all; for a couple Pyth publishes a
+//              derived 24/7 index (see pythIndexName), which reports discovery happening on
+//              secondary venues rather than performing it. Either way the book is where the price
+//              gets made, and an index gives you no limit order and no price-time priority.
 //   "listed" — a public ticker. Pyth publishes a reference price, so we can anchor a mark and
 //              show how far the book trades from it. These exist as a control group: they prove
 //              the venue tracks a known-good price before you trust it where no price exists.
@@ -25,13 +28,18 @@ export interface Listing {
   bidTreeId: number;
   /** Opening mid in whole quote units. Mints are 0-decimal, so price is integer dollars. */
   seedMid: number;
+  /** Pyth's name for this company in its Equity.Index.* namespace, where one exists.
+   *  Pyth publishes a derived 24/7 index for a couple of private companies — NOT an exchange price,
+   *  since there is no exchange, but a real published number all the same. Recording which listings
+   *  have one keeps the venue's claims checkable per listing instead of hand-waved across all six. */
+  pythIndexName?: string;
   blurb: string;
 }
 
 export const LISTINGS: Listing[] = [
   // --- Pre-IPO: no oracle, pure price discovery -------------------------------------------
-  { symbol: "OPENAI",  name: "OpenAI",      kind: "preipo", marketId: 101, askTreeId: 1,  bidTreeId: 2,  seedMid: 350, blurb: "Frontier AI lab" },
-  { symbol: "ANTHRO",  name: "Anthropic",   kind: "preipo", marketId: 102, askTreeId: 3,  bidTreeId: 4,  seedMid: 285, blurb: "Frontier AI lab" },
+  { symbol: "OPENAI",  name: "OpenAI",      kind: "preipo", marketId: 101, askTreeId: 1,  bidTreeId: 2,  seedMid: 350, pythIndexName: "OPENAI", blurb: "Frontier AI lab" },
+  { symbol: "ANTHRO",  name: "Anthropic",   kind: "preipo", marketId: 102, askTreeId: 3,  bidTreeId: 4,  seedMid: 285, pythIndexName: "ANTHROPIC", blurb: "Frontier AI lab" },
   { symbol: "ANDURL",  name: "Anduril",     kind: "preipo", marketId: 103, askTreeId: 5,  bidTreeId: 6,  seedMid: 210, blurb: "Defense technology" },
   { symbol: "NEURA",   name: "Neuralink",   kind: "preipo", marketId: 104, askTreeId: 7,  bidTreeId: 8,  seedMid: 165, blurb: "Neurotechnology" },
   { symbol: "KALSHI",  name: "Kalshi",      kind: "preipo", marketId: 105, askTreeId: 9,  bidTreeId: 10, seedMid:  95, blurb: "Regulated event exchange" },
@@ -47,8 +55,20 @@ export const LISTINGS: Listing[] = [
 export const feedIdOf = (symbol: string): string | undefined =>
   (feeds as Record<string, { id: string }>)[symbol]?.id;
 
+/** A feed the free tier is entitled to, used to prove the Pyth client works when the equity feeds
+ *  are gated behind a Pyth Pro grant. */
+export const probeFeed = (): { id: string; symbol: string } | undefined =>
+  (feeds as Record<string, { id: string; symbol: string }>)._probe;
+
+/** Pyth's own name for this listing's feed, as resolved from Hermes — never a guessed template. */
+export const feedSymbolOf = (symbol: string): string | undefined =>
+  (feeds as Record<string, { symbol: string }>)[symbol]?.symbol;
+
 export const bySymbol = (s: string): Listing | undefined =>
   LISTINGS.find((l) => l.symbol.toLowerCase() === s.toLowerCase());
+
+/** Listings for which nothing, anywhere, publishes a price. */
+export const unpriced = (): Listing[] => LISTINGS.filter((l) => l.kind === "preipo" && !l.pythIndexName);
 
 export const preipo = (): Listing[] => LISTINGS.filter((l) => l.kind === "preipo");
 export const listed = (): Listing[] => LISTINGS.filter((l) => l.kind === "listed");

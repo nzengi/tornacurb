@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://tornacurb.vercel.app"),
   title: "TornaCurb, a central limit order book for pre-IPO stock tokens",
   description:
-    "Nobody publishes a price for OpenAI stock, so an AMM has nothing to quote against. TornaCurb is a central limit order book for pre-IPO stock tokens on Solana, built on Torna: every B+ tree node is its own account, so quotes at different price levels commit in the same slot.",
+    "There is no exchange for OpenAI stock, so an AMM has no formed price to quote against. TornaCurb is a central limit order book for pre-IPO stock tokens on Solana, built on Torna: every B+ tree node is its own account, so quotes at different price levels commit in the same slot.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -94,22 +94,38 @@ export default function WhyPage() {
 
           <H id="noprice" n="3.">Pre-IPO breaks the assumption completely</H>
           <P>
-            Everything above assumes there is an outside price the pool is lagging. For a private company
-            there is not. Nobody — no exchange, no data vendor, no oracle — publishes a price for OpenAI
-            stock. Pyth does not have a feed, because there is nothing to feed from.
+            Everything above assumes there is an outside price the pool is lagging toward. For a private
+            company there is no exchange forming one. For Anduril, Neuralink, Kalshi and Polymarket
+            nothing publishes a price at all.
           </P>
           <P>
-            So the AMM&apos;s implicit contract fails at the first clause. An LP who seeds a pre-IPO pool
-            is not providing liquidity around a known price; they are asserting a price, with capital,
-            against anyone who disagrees. There is no arbitrage that corrects them toward truth, because
-            there is no truth to be corrected toward. The pool does not discover a price. It publishes a
-            guess and defends it with the LP&apos;s money.
+            For OpenAI and Anthropic the picture is more interesting, and worth stating precisely rather
+            than rounding off. Pyth does publish a feed for both —{" "}
+            <span className="nums text-fg">Equity.Index.OPENAI/USD</span> and{" "}
+            <span className="nums text-fg">Equity.Index.ANTHROPIC/USD</span>, 24/7. But look at what it
+            is: an <em className="not-italic text-fg">index</em>, not an exchange price, because there is
+            no exchange to take a price from. It is derived from wherever these claims actually change
+            hands — secondary venues, tokenised markets, broker indications. It reports price discovery.
+            It does not perform it.
+          </P>
+          <Note>
+            This matters for the argument, so we would rather be exact than rhetorical: a price for
+            OpenAI does exist, published by Pyth. What does not exist is a venue where that price is
+            formed. An index is a mirror; somebody still has to be the market it reflects.
+          </Note>
+          <P>
+            Either way the AMM&apos;s implicit contract fails at the first clause. Where nothing is
+            published, an LP who seeds a pre-IPO pool is not providing liquidity around a known price;
+            they are asserting one, with capital, against anyone who disagrees. Where an index exists,
+            anchoring to it is circular: the index is derived from the thin venues the pool is supposed
+            to be improving on, so the pool ends up quoting a reflection of itself. Neither case is
+            price discovery.
           </P>
           <P>
             An order book has no such dependency. It does not need to know what the asset is worth. It
             collects what people are willing to pay and accept, sorts them, and the best of each is the
             price — which is exactly how price discovery has always worked, and the only mechanism that
-            works when there is nothing to copy from.
+            works when there is nothing to copy from, or nothing worth copying.
           </P>
 
           <H id="thin" n="4.">Thin floats favour books, structurally</H>

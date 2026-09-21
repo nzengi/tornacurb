@@ -1,0 +1,7 @@
+# Vercel builds from source, so shipping a local build is wasted upload — and the source maps in it
+# are megabytes each. Excluding them keeps the deploy small and fast.
+.next
+node_modules
+.git
+deploy
+*.log

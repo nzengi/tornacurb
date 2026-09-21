@@ -3,11 +3,12 @@
 // The venue view: the listing strip on top, the terminal for whatever is selected below.
 //
 // The strip is split into the two kinds of listing because that split IS the product argument —
-// pre-IPO names have no oracle anywhere, so the book is the only price; the listed names have a
-// Pyth reference to check the book against. Keeping them visually apart makes the point without
-// a paragraph of copy.
+// pre-IPO names have no exchange anywhere, so the book is where the price gets made; the listed
+// names have a real exchange price to check the book against. Keeping them visually apart makes the
+// point without a paragraph of copy.
 import { useState } from "react";
 import { Terminal } from "./Terminal";
+import { OracleStrip } from "./OracleStrip";
 import { liveMarkets, type LiveMarket } from "@/lib/venue";
 
 function Strip({ title, note, rows, sel, onPick }: {
@@ -58,14 +59,15 @@ export function Venue() {
     <div className="space-y-6">
       <div className="space-y-5 rounded-xl border border-line bg-panel px-4 py-4">
         <Strip
-          title="Pre-IPO" note="no oracle exists — the book is the price"
+          title="Pre-IPO" note="no exchange anywhere — the book is the price"
           rows={markets.filter((m) => m.kind === "preipo")} sel={sel} onPick={setSel}
         />
         <Strip
-          title="Listed" note="Pyth reference available"
+          title="Listed" note="a real exchange price, used to check the book"
           rows={markets.filter((m) => m.kind === "listed")} sel={sel} onPick={setSel}
         />
       </div>
+      <OracleStrip symbol={sel} />
       <Terminal key={sel} symbol={sel} />
     </div>
   );

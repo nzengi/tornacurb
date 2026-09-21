@@ -20,12 +20,12 @@ export default function Home() {
         <div className="mx-auto max-w-3xl px-6 pt-24 pb-16 text-center">
           <p className="enter text-xs font-semibold uppercase tracking-[0.2em] text-brand">Pre-IPO stock tokens, on an order book</p>
           <h1 className="enter display mt-4 text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl" style={{ animationDelay: "70ms" }}>
-            Nobody publishes a price for <span className="text-gradient">OpenAI stock</span>.
+            There is no exchange for <span className="text-gradient">OpenAI stock</span>.
           </h1>
           <p className="enter mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted" style={{ animationDelay: "140ms" }}>
-            An automated market maker needs a price to quote against. An order book does not — it discovers
-            the price from the orders themselves. <span className="font-medium text-fg">TornaCurb</span> is
-            the venue for the assets that do not have one.
+            An automated market maker quotes against a price formed somewhere else. For these companies
+            there is nowhere else. <span className="font-medium text-fg">TornaCurb</span> is where the
+            price gets made — a real order book for shares that never had a venue.
           </p>
           <div className="enter mt-8 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "210ms" }}>
             <Link href="/trade" className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-medium text-onbrand transition-colors duration-100 hover:bg-brand-hi active:translate-y-px">
@@ -58,14 +58,16 @@ export default function Home() {
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">The venue</div>
             <h2 className="display mt-2 text-3xl font-semibold tracking-tight">Eight listings, two kinds</h2>
             <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-muted">
-              The split is the argument. Private companies have no oracle anywhere, so the book is the only
-              price. The listed pair is a control group: where a known-good price exists, you can watch how
-              closely the book tracks it — and only then is it reasonable to trust the same machinery where
-              no price exists at all.
+              The split is the argument. For most of these private companies nothing publishes a price at
+              all; Pyth does index OpenAI and Anthropic, but an index reports discovery happening on
+              secondary venues rather than performing it, and it gives you no limit order and no
+              price-time priority. The listed pair is a control group: where a price is formed on a real
+              exchange, you can watch how closely the book tracks it — and only then is it reasonable to
+              trust the same machinery where no exchange exists at all.
             </p>
 
             <div className="mt-6">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Pre-IPO · no oracle exists</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Pre-IPO · no exchange anywhere</div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {preipo.map((l) => (
                   <span key={l.symbol} className="rounded-lg border border-line bg-panel px-3 py-1.5">
@@ -77,7 +79,7 @@ export default function Home() {
             </div>
 
             <div className="mt-5">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Listed · Pyth reference, used to check the book</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">Listed · a real exchange price, used to check the book</div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {listed.map((l) => (
                   <span key={l.symbol} className="rounded-lg border border-line bg-panel px-3 py-1.5">
