@@ -14,6 +14,14 @@ export function Footer() {
             <a href="https://www.npmjs.com/package/torna-sdk" target="_blank" rel="noreferrer" className="font-medium text-fg transition-colors duration-100 hover:text-brand">torna-sdk (npm)</a>
             <a href="https://crates.io/crates/torna-sdk" target="_blank" rel="noreferrer" className="font-medium text-fg transition-colors duration-100 hover:text-brand">torna-sdk (crates.io)</a>
           </div>
+          {/* A venue with no name attached to it is asking for trust it has not offered. This is
+              also the only channel anyone has for telling us something is broken. */}
+          <div className="text-muted">
+            Built by{" "}
+            <a href="https://x.com/furkanzkx" target="_blank" rel="noreferrer"
+               className="font-medium text-fg transition-colors duration-100 hover:text-brand">@furkanzkx</a>
+            {" · "}questions and bug reports welcome
+          </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <span className="flex items-center gap-1.5 text-muted">engine <Address value={VENUE.tornaProgramId} /></span>
             <span className="flex items-center gap-1.5 text-muted">book <Address value={VENUE.orderbookProgramId} /></span>

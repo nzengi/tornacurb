@@ -202,7 +202,10 @@ export default function GuidePage() {
           <li>· Open the <Link href="/explorer" className="text-brand hover:text-brand-hi">explorer</Link> and check your orders really are in the leaf accounts it lists.</li>
         </ul>
         <P>
-          Tell us what breaks.
+          Then tell us what broke —{" "}
+          <a href="https://x.com/furkanzkx" target="_blank" rel="noreferrer"
+             className="font-medium text-brand hover:text-brand-hi">@furkanzkx</a>. A venue is only
+          worth anything if the people using it can say when it is wrong.
         </P>
 
         <div className="mt-10 flex flex-wrap gap-x-5 gap-y-2 border-t border-line pt-6 text-sm">
