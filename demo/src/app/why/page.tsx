@@ -252,6 +252,16 @@ export default function WhyPage() {
             stand behind each new name. Rebates on resting volume are the standard way to pay for
             that, and they cost nothing until somebody actually quotes.
           </P>
+          <P>
+            <strong className="text-fg">Which suggests where a curve does belong.</strong> A newly
+            tokenised name has no makers yet, and we said earlier that an always-on quote beats an
+            empty book in exactly that case. So the honest sequence is not book-versus-curve but
+            curve-then-book: launch a thin listing on a bonding curve, where something has to quote
+            before anyone will, and graduate it into the order book once there is two-sided interest
+            to carry it. Meteora&apos;s DBC graduates into an AMM pool today; graduating into a book
+            instead is the same mechanism pointed at the venue the asset ends up needing. We have not
+            built that — it is the shape of the liquidity answer, not a claim about what exists.
+          </P>
           <Note>
             We would rather show you a working venue and name the two gates than claim a mainnet we
             have not earned. Both are gates we can walk through; neither is one we can skip.
