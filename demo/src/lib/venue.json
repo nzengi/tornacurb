@@ -379,6 +379,30 @@
       "quoteVault": "DoGF9AkxTqvYCLaHxtRDwRn33kaDHPw1pfy35cwjVri9",
       "book": "7ndPuqDyKd4VTra2merz56y22uuDmduZsdEhjQmz5EaQ",
       "cfg": "7X4eaMi8vJQxpjwybH4xWGS52rVVB8kVa9yd595GAger"
+    },
+    "SPACEX": {
+      "symbol": "SPACEX",
+      "marketId": 110,
+      "askTreeId": 20,
+      "bidTreeId": 21,
+      "bookBump": 255,
+      "baseMint": "76j1Hk6zupsgh44SLUgtvY4Cq2LhaYTrADeNMtCUVpw3",
+      "baseVault": "GFn3TochAuT2ZJH5sTBNsUCpeMTufAQz31L6sJ8j8SBH",
+      "quoteVault": "2XwLxtXb4ieQdf1CqdBCWULUaikEoDt9uovDEQsS7tpv",
+      "book": "QPtA5QmxWq8tYHgsuvAbcNfShbsNvyEFULPoycdEFnL",
+      "cfg": "AUTdmL1Emi6aF8G1FyMf1A37ye8fTQ5ugJzmqEV2UxZB"
+    },
+    "FIGURE": {
+      "symbol": "FIGURE",
+      "marketId": 111,
+      "askTreeId": 22,
+      "bidTreeId": 23,
+      "bookBump": 255,
+      "baseMint": "3HmCMq8X3M3nj6nEoMMR5EEVSmEAxQYHbXem9AHfL3Ls",
+      "baseVault": "45Dp5iYP7QM3gu7ERLd22pGEkBdLGSZvoXGSj3etXp3k",
+      "quoteVault": "DNtx2z173tGJQdS8w4TYYf7SyadVffASdVsXewCwa2eR",
+      "book": "GVebQaHW22BSgGU43RojVKCupDKJN8R92rtK5cENHdC9",
+      "cfg": "4gz41HWHKe77PTK3jzBi6y1j7DupxAp1NTWT7kECQxku"
     }
   }
 }

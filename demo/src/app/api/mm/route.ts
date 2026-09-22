@@ -19,7 +19,7 @@ import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Tree, keys, type AccountReader } from "torna-sdk";
 import { ASK, BID, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "@/lib/orderbook";
 import venue from "@/lib/venue.json";
-import { LISTINGS, type Listing } from "@/lib/listings";
+import { LISTINGS, openingMid, type Listing } from "@/lib/listings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -131,9 +131,10 @@ export async function POST(req: Request) {
     const ours = new Set(demos.map((d) => d.publicKey.toBase58()));
 
     // anchor the walk to the current mid so restarts don't jump the price around
-    const seen = asks[0] && bids[0] ? (Number(asks[0].price) + Number(bids[0].price)) / 2 : m.seedMid;
+    const anchor = openingMid(m);
+    const seen = asks[0] && bids[0] ? (Number(asks[0].price) + Number(bids[0].price)) / 2 : anchor;
     const moved = seen * (1 + (Math.random() * 2 - 1) * DRIFT);
-    const mid = Math.min(m.seedMid * (1 + MAX_DEV), Math.max(m.seedMid * (1 - MAX_DEV), moved));
+    const mid = Math.min(anchor * (1 + MAX_DEV), Math.max(anchor * (1 - MAX_DEV), moved));
 
     const { blockhash } = await conn.getLatestBlockhash("confirmed");
 

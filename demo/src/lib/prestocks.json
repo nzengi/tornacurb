@@ -1,0 +1,90 @@
+{
+  "ANDURIL": {
+    "symbol": "ANDURIL",
+    "name": "Anduril",
+    "mint": "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB",
+    "markPrice": 152.68668364,
+    "tokenPrice": 150.69339644716567,
+    "markValuation": 135081765077,
+    "impliedValuation": 133318305776,
+    "url": "https://www.prestocks.com/anduril",
+    "image": "https://www.prestocks.com/logos/anduril.png"
+  },
+  "ANTHROPIC": {
+    "symbol": "ANTHROPIC",
+    "name": "Anthropic",
+    "mint": "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw",
+    "markPrice": 1050.59859041,
+    "tokenPrice": 1038.060632880041,
+    "markValuation": 1721240114337,
+    "impliedValuation": 1700698648120,
+    "url": "https://www.prestocks.com/anthropic",
+    "image": "https://www.prestocks.com/logos/anthropic.png"
+  },
+  "FIGUREAI": {
+    "symbol": "FIGUREAI",
+    "name": "Figure AI",
+    "mint": "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd",
+    "markPrice": 182.02143428,
+    "tokenPrice": 175.21581620060945,
+    "markValuation": 39685584348,
+    "impliedValuation": 38201775963,
+    "url": "https://www.prestocks.com/figureai",
+    "image": "https://www.prestocks.com/logos/figureai.png"
+  },
+  "KALSHI": {
+    "symbol": "KALSHI",
+    "name": "Kalshi",
+    "mint": "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua",
+    "markPrice": 887.42900641,
+    "tokenPrice": 869.5533945373654,
+    "markValuation": 32277614888,
+    "impliedValuation": 31627442185,
+    "url": "https://www.prestocks.com/kalshi",
+    "image": "https://www.prestocks.com/logos/kalshi.png"
+  },
+  "NEURALINK": {
+    "symbol": "NEURALINK",
+    "name": "Neuralink",
+    "mint": "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S",
+    "markPrice": 338.30016629,
+    "tokenPrice": 455.42244281677995,
+    "markValuation": 64444506925,
+    "impliedValuation": 86755720790,
+    "url": "https://www.prestocks.com/neuralink",
+    "image": "https://www.prestocks.com/logos/neuralink.png"
+  },
+  "OPENAI": {
+    "symbol": "OPENAI",
+    "name": "OpenAI",
+    "mint": "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+    "markPrice": 1003.5207257659753,
+    "tokenPrice": 1138.5948664164932,
+    "markValuation": 1243292231669,
+    "impliedValuation": 1410639676977,
+    "url": "https://www.prestocks.com/openai",
+    "image": "https://www.prestocks.com/logos/openai.png"
+  },
+  "POLYMARKET": {
+    "symbol": "POLYMARKET",
+    "name": "Polymarket",
+    "mint": "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP",
+    "markPrice": 144.14194736,
+    "tokenPrice": 143.01270285573673,
+    "markValuation": 14216109606,
+    "impliedValuation": 14104737004,
+    "url": "https://www.prestocks.com/polymarket",
+    "image": "https://www.prestocks.com/logos/polymarket.png"
+  },
+  "SPACEX": {
+    "symbol": "SPACEX",
+    "name": "SpaceX",
+    "mint": "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
+    "markPrice": 152.3926750277057,
+    "tokenPrice": 121.3691534694226,
+    "markValuation": 1998037294808,
+    "impliedValuation": 1591284456599,
+    "url": "https://www.prestocks.com/spacex",
+    "image": "https://www.prestocks.com/logos/spacex.png"
+  }
+}

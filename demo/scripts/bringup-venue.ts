@@ -21,7 +21,7 @@ import { Tree, keys, type AccountReader } from "torna-sdk";
 import {
   ASK, BID, bookPda, cfgPda, orderValue, transferAuthorityIx, initMarketIx, placeIx, type Side,
 } from "../src/lib/orderbook";
-import { LISTINGS, type Listing } from "../src/lib/listings";
+import { LISTINGS, openingMid, type Listing } from "../src/lib/listings";
 
 const RPC = process.env.RPC ?? "https://api.devnet.solana.com";
 const VS = 8 + 32;   // order value: maker(32) + size_be(8)
@@ -266,8 +266,9 @@ async function bringUpMarket(
     await retry(`${L.symbol} mint shares`, () => mintTo(conn, payer, baseMint, a, payer, BASE_PER_DEMO));
   }
 
-  console.log(`  seeding ladder around ${L.seedMid} ...`);
-  for (const [mi, side, price, size] of ladder(L.seedMid)) {
+  const mid0 = openingMid(L);
+  console.log(`  seeding ladder around ${mid0} ...`);
+  for (const [mi, side, price, size] of ladder(mid0)) {
     const maker = demos[mi];
     const tree = side === ASK ? ask : bid;
     const src = side === ASK

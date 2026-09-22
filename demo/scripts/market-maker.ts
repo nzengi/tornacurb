@@ -22,7 +22,7 @@ import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction 
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Tree, keys, type AccountReader } from "torna-sdk";
 import { ASK, BID, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "../src/lib/orderbook";
-import { LISTINGS, type Listing } from "../src/lib/listings";
+import { LISTINGS, openingMid, type Listing } from "../src/lib/listings";
 
 const V = JSON.parse(readFileSync(join(import.meta.dirname, "../src/lib/venue.json"), "utf8"));
 const conn = new Connection(process.env.RPC ?? V.rpcUrl, "confirmed");
@@ -152,9 +152,10 @@ async function step(m: Market) {
   ticks.set(m.symbol, n);
 
   // random walk the mid, clamped so a long run can't drift a listing somewhere absurd
-  const prev = mids.get(m.symbol) ?? m.seedMid;
+  const anchor = openingMid(m);
+  const prev = mids.get(m.symbol) ?? anchor;
   const moved = prev * (1 + (Math.random() * 2 - 1) * DRIFT);
-  const mid = Math.min(m.seedMid * (1 + MAX_DEV), Math.max(m.seedMid * (1 - MAX_DEV), moved));
+  const mid = Math.min(anchor * (1 + MAX_DEV), Math.max(anchor * (1 - MAX_DEV), moved));
   mids.set(m.symbol, mid);
   // log AFTER the walk: the number printed must be the number quoted against
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${m.symbol} tick ${n}, mid ${mid.toFixed(2)}`);

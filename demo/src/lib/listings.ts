@@ -16,6 +16,7 @@
 // so 1..16 are free for us.
 
 import feeds from "./pyth-feeds.json";
+import prestocks from "./prestocks.json";
 
 export type ListingKind = "preipo" | "listed";
 
@@ -26,8 +27,13 @@ export interface Listing {
   marketId: number;
   askTreeId: number;
   bidTreeId: number;
-  /** Opening mid in whole quote units. Mints are 0-decimal, so price is integer dollars. */
-  seedMid: number;
+  /** PreStocks' own symbol for this company, where the listing is one of their tokens. Every
+   *  pre-IPO name here is, so the issuer's catalogue — not our guesses — supplies the opening
+   *  price, the mainnet mint and the page a reader can check it against. */
+  prestocksSymbol?: string;
+  /** Opening mid for listings with no issuer price behind them (the listed control group).
+   *  PreStocks names take theirs from the catalogue instead — see openingMid(). */
+  seedMid?: number;
   /** Pyth's name for this company in its Equity.Index.* namespace, where one exists.
    *  Pyth publishes a derived 24/7 index for a couple of private companies — NOT an exchange price,
    *  since there is no exchange, but a real published number all the same. Recording which listings
@@ -38,17 +44,37 @@ export interface Listing {
 
 export const LISTINGS: Listing[] = [
   // --- Pre-IPO: no oracle, pure price discovery -------------------------------------------
-  { symbol: "OPENAI",  name: "OpenAI",      kind: "preipo", marketId: 101, askTreeId: 1,  bidTreeId: 2,  seedMid: 350, pythIndexName: "OPENAI", blurb: "Frontier AI lab" },
-  { symbol: "ANTHRO",  name: "Anthropic",   kind: "preipo", marketId: 102, askTreeId: 3,  bidTreeId: 4,  seedMid: 285, pythIndexName: "ANTHROPIC", blurb: "Frontier AI lab" },
-  { symbol: "ANDURL",  name: "Anduril",     kind: "preipo", marketId: 103, askTreeId: 5,  bidTreeId: 6,  seedMid: 210, blurb: "Defense technology" },
-  { symbol: "NEURA",   name: "Neuralink",   kind: "preipo", marketId: 104, askTreeId: 7,  bidTreeId: 8,  seedMid: 165, blurb: "Neurotechnology" },
-  { symbol: "KALSHI",  name: "Kalshi",      kind: "preipo", marketId: 105, askTreeId: 9,  bidTreeId: 10, seedMid:  95, blurb: "Regulated event exchange" },
-  { symbol: "POLYMKT", name: "Polymarket",  kind: "preipo", marketId: 106, askTreeId: 11, bidTreeId: 12, seedMid:  78, blurb: "Prediction market" },
+  { symbol: "OPENAI",  name: "OpenAI",      kind: "preipo", marketId: 101, askTreeId: 1,  bidTreeId: 2,  prestocksSymbol: "OPENAI",     pythIndexName: "OPENAI",    blurb: "Frontier AI lab" },
+  { symbol: "ANTHRO",  name: "Anthropic",   kind: "preipo", marketId: 102, askTreeId: 3,  bidTreeId: 4,  prestocksSymbol: "ANTHROPIC",  pythIndexName: "ANTHROPIC", blurb: "Frontier AI lab" },
+  { symbol: "ANDURL",  name: "Anduril",     kind: "preipo", marketId: 103, askTreeId: 5,  bidTreeId: 6,  prestocksSymbol: "ANDURIL",    blurb: "Defense technology" },
+  { symbol: "NEURA",   name: "Neuralink",   kind: "preipo", marketId: 104, askTreeId: 7,  bidTreeId: 8,  prestocksSymbol: "NEURALINK",  blurb: "Neurotechnology" },
+  { symbol: "KALSHI",  name: "Kalshi",      kind: "preipo", marketId: 105, askTreeId: 9,  bidTreeId: 10, prestocksSymbol: "KALSHI",     blurb: "Regulated event exchange" },
+  { symbol: "POLYMKT", name: "Polymarket",  kind: "preipo", marketId: 106, askTreeId: 11, bidTreeId: 12, prestocksSymbol: "POLYMARKET", blurb: "Prediction market" },
+  { symbol: "SPACEX",  name: "SpaceX",      kind: "preipo", marketId: 110, askTreeId: 20, bidTreeId: 21, prestocksSymbol: "SPACEX",     blurb: "Launch and satellite internet" },
+  { symbol: "FIGURE",  name: "Figure AI",   kind: "preipo", marketId: 111, askTreeId: 22, bidTreeId: 23, prestocksSymbol: "FIGUREAI",   blurb: "Humanoid robotics" },
 
   // --- Listed: Pyth-anchored control group ------------------------------------------------
   { symbol: "NVDA",    name: "NVIDIA",      kind: "listed", marketId: 107, askTreeId: 13, bidTreeId: 14, seedMid: 184, blurb: "US equity" },
   { symbol: "SPY",     name: "S&P 500 ETF", kind: "listed", marketId: 108, askTreeId: 15, bidTreeId: 16, seedMid: 640, blurb: "US equity ETF" },
 ];
+
+/** PreStocks' catalogue, keyed by their symbol. */
+export interface PreStock {
+  symbol: string; name: string; mint: string;
+  markPrice: number; tokenPrice: number;
+  markValuation: number | null; impliedValuation: number | null;
+  url: string | null; image: string | null;
+}
+export const preStockOf = (l: Listing): PreStock | undefined =>
+  l.prestocksSymbol ? (prestocks as Record<string, PreStock>)[l.prestocksSymbol] : undefined;
+
+/** The price a market opens at. For a PreStocks name that is the issuer's own mark, rounded to a
+ *  whole unit because the mints are zero-decimal; for the listed control group it is set by hand. */
+export const openingMid = (l: Listing): number => {
+  const ps = preStockOf(l);
+  if (ps) return Math.max(1, Math.round(ps.markPrice));
+  return l.seedMid ?? 100;
+};
 
 // Pyth feed ids live in pyth-feeds.json, written by scripts/resolve-pyth-feeds.ts. Pre-IPO names
 // are absent from it by definition: no public market means no oracle to look up.

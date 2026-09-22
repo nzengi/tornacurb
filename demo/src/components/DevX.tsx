@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { placeIx, ASK } from "@/lib/orderbook";
 import { askTree, connection, demoKeypair, liveMarkets, marketIdOf, orderbookProgram, reader, tornaProgram, shorten, VENUE } from "@/lib/venue";
+import { openingMid } from "@/lib/listings";
 
 const CODE = `import { Tree, keys } from "torna-sdk";
 
@@ -33,7 +34,7 @@ export function DevX() {
         const maker = demoKeypair(0);
         const { ix } = await placeIx({
           reader: reader(connection()), tree: askTree(market), orderbook: orderbookProgram(), torna: tornaProgram(),
-          marketId: marketIdOf(market), side: ASK, price: BigInt(market.seedMid), size: 1n, nonce: 99n,
+          marketId: marketIdOf(market), side: ASK, price: BigInt(openingMid(market)), size: 1n, nonce: 99n,
           maker: maker.publicKey, makerSrc: maker.publicKey, vault: maker.publicKey,
         });
         const roles = ["maker", "book PDA", "torna", "ask header", "maker src", "vault", "token prog", "cfg"];

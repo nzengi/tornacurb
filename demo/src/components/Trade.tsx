@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { ASK, BID, type Side } from "@/lib/orderbook";
 import { place, take, type Actor } from "@/lib/actions";
 import { explorerTx, type LiveMarket } from "@/lib/venue";
+import { openingMid } from "@/lib/listings";
 import type { Order } from "@/lib/useBook";
 
 type Toast = { kind: "pending" | "ok" | "err"; msg: string; sig?: string } | null;
@@ -14,7 +15,7 @@ export function Trade({ actor, market, book, onDone }: { actor: Actor | null; ma
   // Track buy/sell INTENT, not book-side, so one color always means one direction. The book side is
   // derived: selling rests/hits asks when placing, hits bids when taking, and vice versa.
   const [dir, setDir] = useState<"buy" | "sell">("sell");
-  const [price, setPrice] = useState(String(market.seedMid));
+  const [price, setPrice] = useState(String(openingMid(market)));
   const [size, setSize] = useState("3");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
