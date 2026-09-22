@@ -31,10 +31,16 @@ export interface Market {
 
 export const MARKET = marketJson as Market;
 
-// RPC endpoint: prefer a dedicated NEXT_PUBLIC_RPC_URL (Helius/Triton/etc., far fewer 429s than
-// the shared public devnet RPC), fall back to the deployment's rpcUrl. One shared Connection is
-// reused across the app so web3.js can coalesce + rate-limit-retry centrally.
-export const rpcUrl = (): string => process.env.NEXT_PUBLIC_RPC_URL || MARKET.rpcUrl;
+// RPC endpoint for the BROWSER. It goes through our own /api/rpc proxy, which holds the dedicated
+// endpoint server-side: a keyed URL in NEXT_PUBLIC_* would be bundled into the page and readable by
+// every visitor, while public devnet 429s on the first explorer page load. NEXT_PUBLIC_RPC_URL is
+// still honoured if someone deliberately sets it. One shared Connection is reused across the app so
+// web3.js can coalesce + rate-limit-retry centrally.
+export const rpcUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_RPC_URL) return process.env.NEXT_PUBLIC_RPC_URL;
+  if (typeof window !== "undefined") return `${window.location.origin}/api/rpc`;
+  return MARKET.rpcUrl;
+};
 
 let _conn: Connection | undefined;
 export const connection = (): Connection => {
