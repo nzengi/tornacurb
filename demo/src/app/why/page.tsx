@@ -16,6 +16,7 @@ const TOC: [string, string][] = [
   ["book", "6. What a book buys you"],
   ["against", "7. When a pool is the right answer"],
   ["solana", "8. Why this was hard on Solana"],
+  ["real", "9. What makes this real"],
 ];
 
 function H({ id, n, children }: { id: string; n?: string; children: React.ReactNode }) {
@@ -219,6 +220,42 @@ export default function WhyPage() {
             <Link href="/research" className="font-medium text-brand hover:text-brand-hi">Read the engineering research →</Link>
             <Link href="/trade" className="text-muted hover:text-fg">Or just trade it on devnet</Link>
           </div>
+
+          <H id="real" n="9.">What makes this real</H>
+          <P>
+            Everything above runs on devnet against mock share tokens, and the honest question is what
+            stands between that and a venue people actually trade on. Two things, in order, and the
+            second is harder than the first.
+          </P>
+          <P>
+            <strong className="text-fg">The audit is the gate.</strong> The engine and the order book
+            have been through in-house adversarial review to convergence; the external audit is
+            pending. We are not putting an unaudited matching engine in front of real collateral, and
+            no amount of hackathon pressure changes that. Nothing about the venue changes once it
+            clears — listing a real token is a config row, not a protocol change, because the venue
+            reads mints from a table and has no opinion about which ones.
+          </P>
+          <P>
+            <strong className="text-fg">We are not issuing anything.</strong> That distinction is
+            worth stating plainly, because it is what makes the path walkable. The shares are issued,
+            custodied and legally wrapped by PreStocks, Tessera, Ondo and Backed; those tokens already
+            exist and already trade. TornaCurb does not create exposure to a private company — it
+            gives exposure that is already trading somewhere worse a better place to trade. A matching
+            venue for existing tokens is a different undertaking, legally and operationally, from an
+            issuer.
+          </P>
+          <P>
+            <strong className="text-fg">Liquidity is the real gate.</strong> An order book with no
+            makers is worse than a pool: a pool at least always quotes, while an empty book just looks
+            broken. So the venue does not open with eight listings on mainnet. It opens with one, with
+            a maker who has committed to quote it, and widens only as fast as someone is willing to
+            stand behind each new name. Rebates on resting volume are the standard way to pay for
+            that, and they cost nothing until somebody actually quotes.
+          </P>
+          <Note>
+            We would rather show you a working venue and name the two gates than claim a mainnet we
+            have not earned. Both are gates we can walk through; neither is one we can skip.
+          </Note>
 
           <div className="mt-12 border-t border-line pt-6 text-sm leading-relaxed text-faint">
             Market-size figures are third-party reporting on Q2 2026 tokenised-equity volume and listing
