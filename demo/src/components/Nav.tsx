@@ -12,14 +12,15 @@ const WalletMultiButton = dynamic(
   { ssr: false },
 );
 
+// Four items, in the order a visitor needs them: the venue, the argument, the proof, the detail.
+// Home is the logo, which is where people look for it anyway. The engine-facing pages
+// (/research, /build) are reached from the pages that give them context rather than competing
+// with the venue for space in the top bar.
 const LINKS = [
-  { href: "/", label: "Home" },
   { href: "/trade", label: "Markets" },
   { href: "/why", label: "Why a book" },
-  { href: "/research", label: "Engineering" },
   { href: "/explorer", label: "Explorer" },
   { href: "/docs", label: "Docs" },
-  { href: "/build", label: "Build on Torna" },
 ];
 
 export function Nav() {

@@ -27,6 +27,12 @@ export default async function DocsPage({ searchParams }: { searchParams: Promise
         venue — eight order books for pre-IPO stock tokens. <span className="font-medium text-fg">Torna</span>{" "}
         is the on-chain index underneath it, which you can build your own sorted state on.
       </p>
+      <p className="mt-2 text-sm text-muted">
+        In a hurry? <Link href="/build" className="font-medium text-brand hover:text-brand-hi">The code-first quickstart</Link>{" "}
+        gets a tree running in TypeScript or Rust, and{" "}
+        <Link href="/research" className="font-medium text-brand hover:text-brand-hi">the engineering research</Link>{" "}
+        covers the designs we rejected and the numbers we measured.
+      </p>
       <div className="mt-5 inline-flex rounded-xl border border-line p-1 text-sm">
         {tabs.map(([t, href, label]) => (
           <Link key={t} href={href} scroll={false}
