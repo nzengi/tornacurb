@@ -152,9 +152,11 @@ async function step(m: Market) {
   ticks.set(m.symbol, n);
 
   // random walk the mid, clamped so a long run can't drift a listing somewhere absurd
+  // see the note in /api/mm: outside the band we snap to the anchor rather than clamp to its edge
   const anchor = openingMid(m);
   const prev = mids.get(m.symbol) ?? anchor;
-  const moved = prev * (1 + (Math.random() * 2 - 1) * DRIFT);
+  const base = Math.abs(prev - anchor) / anchor <= MAX_DEV ? prev : anchor;
+  const moved = base * (1 + (Math.random() * 2 - 1) * DRIFT);
   const mid = Math.min(anchor * (1 + MAX_DEV), Math.max(anchor * (1 - MAX_DEV), moved));
   mids.set(m.symbol, mid);
   // log AFTER the walk: the number printed must be the number quoted against

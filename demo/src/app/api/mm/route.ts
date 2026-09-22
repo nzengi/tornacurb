@@ -131,9 +131,16 @@ export async function POST(req: Request) {
     const ours = new Set(demos.map((d) => d.publicKey.toBase58()));
 
     // anchor the walk to the current mid so restarts don't jump the price around
+    // The band exists to stop a long run of random walks wandering somewhere absurd, not to stop the
+    // book reaching the issuer's price in the first place. A book that is outside it — because the
+    // opening price changed, or because it was just cleared — snaps to the anchor rather than
+    // clamping to the band edge, which would leave it sitting a fixed 12% off the mark and looking
+    // like a signal when it is only an artefact of this clamp.
     const anchor = openingMid(m);
-    const seen = asks[0] && bids[0] ? (Number(asks[0].price) + Number(bids[0].price)) / 2 : anchor;
-    const moved = seen * (1 + (Math.random() * 2 - 1) * DRIFT);
+    const bookMid = asks[0] && bids[0] ? (Number(asks[0].price) + Number(bids[0].price)) / 2 : null;
+    const inBand = bookMid !== null && Math.abs(bookMid - anchor) / anchor <= MAX_DEV;
+    const base = inBand ? bookMid! : anchor;
+    const moved = base * (1 + (Math.random() * 2 - 1) * DRIFT);
     const mid = Math.min(anchor * (1 + MAX_DEV), Math.max(anchor * (1 - MAX_DEV), moved));
 
     const { blockhash } = await conn.getLatestBlockhash("confirmed");
