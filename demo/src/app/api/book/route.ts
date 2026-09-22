@@ -19,6 +19,25 @@ const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const TTL_MS = 10_000;
 
 const conn = new Connection(RPC, "confirmed");
+
+// The RPC's free tier limits requests per second, and reading two trees is a burst of account
+// fetches. A cold instance with nothing cached used to pass that straight through, which surfaced in
+// the UI as a raw JSON-RPC error where the order book should be — the worst place to show one.
+// Retrying briefly costs a moment; a book that says "rate limited" costs the reader's trust.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let wait = 250;
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = (e as Error)?.message ?? "";
+      const transient = msg.includes("429") || msg.includes("-32429") || msg.toLowerCase().includes("rate limit");
+      if (i >= attempts || !transient) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+      wait *= 2;
+    }
+  }
+}
 const reader: AccountReader = {
   async accountData(k) { const a = await conn.getAccountInfo(k, "confirmed"); return a ? Uint8Array.from(a.data) : null; },
 };
@@ -56,16 +75,18 @@ export async function GET(req: Request) {
   try {
     const torna = new PublicKey(venue.tornaProgramId);
     const creator = new PublicKey(venue.creator);
-    const [asks, bids] = await Promise.all([
-      scanSide(new Tree(torna, creator, state.askTreeId), keys.Side.Ask),
-      scanSide(new Tree(torna, creator, state.bidTreeId), keys.Side.Bid),
-    ]);
+    // sequential, not parallel: two concurrent tree walks are what trips the per-second limit
+    const asks = await withRetry(() => scanSide(new Tree(torna, creator, state.askTreeId), keys.Side.Ask));
+    const bids = await withRetry(() => scanSide(new Tree(torna, creator, state.bidTreeId), keys.Side.Bid));
     const data: Snap = { asks, bids };
     cache.set(listing.symbol, { at: Date.now(), data });
     return NextResponse.json(data, { headers: { "cache-control": "public, max-age=8" } });
   } catch (e) {
     // serve the last good snapshot on a transient RPC error (e.g. a 429), instead of failing the UI
     if (hit) return NextResponse.json(hit.data, { headers: { "cache-control": "public, max-age=4" } });
-    return NextResponse.json({ asks: [], bids: [], error: e instanceof Error ? e.message : String(e) });
+    // no snapshot to fall back on. Say the book is still loading — which is true — rather than
+    // printing an RPC error into the panel a visitor is trying to read prices from.
+    console.error("book read failed:", e);
+    return NextResponse.json({ asks: [], bids: [], retrying: true });
   }
 }

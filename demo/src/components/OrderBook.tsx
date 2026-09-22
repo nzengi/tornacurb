@@ -82,9 +82,15 @@ export function OrderBook({
         <span className="text-right">maker</span>
       </div>
 
-      {error ? (
+      {/* A transient read failure is not an error the reader can act on, and printing an RPC stack
+          trace where prices should be is the worst possible place to put one. "loading" comes from
+          the server when it could not reach the chain this moment and will try again; anything else
+          is a real fault and still says so. */}
+      {error === "loading" ? (
+        <div className="px-4 py-6 text-center text-xs text-faint">reading the book …</div>
+      ) : error ? (
         <div className="flex flex-col items-center gap-2 px-4 py-6 text-center text-xs text-ask">
-          <span>RPC error: {error}</span>
+          <span>Could not read the book: {error.slice(0, 90)}</span>
           {onRetry && (
             <button onClick={onRetry} className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-muted transition-colors duration-100 hover:border-muted hover:text-fg">
               <RefreshCw className="h-3 w-3" aria-hidden /> Retry

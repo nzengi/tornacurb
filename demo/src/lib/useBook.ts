@@ -39,7 +39,9 @@ export function useBook(symbol: string, pollMs = 20000): BookState {
       const j = await res.json();
       setAsks(parse(j.asks ?? []));
       setBids(parse(j.bids ?? []));
-      setError(j.error ?? null);
+      // "retrying" means the server could not read the chain this moment; it is a transient
+      // state, not something to shout at the reader with an RPC stack trace
+      setError(j.retrying ? "loading" : (j.error ?? null));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

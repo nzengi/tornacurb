@@ -11,6 +11,20 @@ export const dynamic = "force-dynamic";
 const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const TTL_MS = 12_000;
 const conn = new Connection(RPC, "confirmed");
+
+// Same reasoning as the book route: the free RPC tier limits requests per second and a cold
+// instance has nothing cached, so a transient 429 must be retried rather than shown.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let wait = 250;
+  for (let i = 1; ; i++) {
+    try { return await fn(); } catch (e) {
+      const msg = (e as Error)?.message ?? "";
+      const transient = msg.includes("429") || msg.includes("-32429") || msg.toLowerCase().includes("rate limit");
+      if (i >= attempts || !transient) throw e;
+      await new Promise((r) => setTimeout(r, wait)); wait *= 2;
+    }
+  }
+}
 // one orderbook program serves every listing, so this feed is venue-wide by construction
 const OB = new PublicKey(venue.orderbookProgramId);
 const ASK = 0, BID = 1;
@@ -65,7 +79,7 @@ export async function GET() {
     // minute, that window is under a minute wide — a visitor who places an order and then looks at
     // this panel has already watched it scroll off. The server reads through the dedicated RPC now,
     // so a wider window costs nothing that matters, and decoded rows are cached by signature.
-    const sigs = await conn.getSignaturesForAddress(OB, { limit: 30 }, "confirmed");
+    const sigs = await withRetry(() => conn.getSignaturesForAddress(OB, { limit: 30 }, "confirmed"));
     // Decode SEQUENTIALLY, not in a parallel burst: an RPC rate-limits many getTransaction calls
     // of the same method at once. Decoded results are cached by signature, so a warm instance only fetches
     // new signatures (usually 0-2 per poll), keeping steady-state load tiny.
