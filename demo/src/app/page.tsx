@@ -112,19 +112,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Why this is even possible on Solana — the engine, kept underneath */}
+      {/* The engine, kept underneath: one bridging line, then let Parallelism make the case */}
       <section className="mx-auto max-w-6xl px-6 pt-4">
-        <div className="max-w-2xl">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Under the hood</div>
-          <h2 className="display mt-2 text-3xl font-semibold tracking-tight">Why Solana could not do this before</h2>
-          <p className="mt-4 text-[15px] leading-relaxed text-muted">
-            The classic on-chain book puts the whole thing in one account per side, so every maker write
-            serialises: one writer per slot, however many quotes arrive. TornaCurb runs on{" "}
-            <a href={GH} target="_blank" rel="noreferrer" className="font-medium text-brand hover:text-brand-hi">Torna</a>,
-            our own open-source index, where every B+ tree node is its own account — quotes at different
-            price levels touch different leaves and commit together.
-          </p>
-        </div>
+        <p className="max-w-2xl text-[15px] leading-relaxed text-muted">
+          None of this works if the book cannot take concurrent quotes. TornaCurb runs on{" "}
+          <a href={GH} target="_blank" rel="noreferrer" className="font-medium text-brand hover:text-brand-hi">Torna</a>,
+          our own open-source index, which is what makes that possible on Solana.
+        </p>
       </section>
       <Parallelism />
 

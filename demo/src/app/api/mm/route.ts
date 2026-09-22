@@ -25,11 +25,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const LEVELS = 2;        // quotes per side per tick; smaller than the script's 3, to fit the budget
+const LEVELS = 3;        // quotes per side per tick; steady state is roughly twice this per side
 const DRIFT = 0.006;
 const MAX_DEV = 0.12;
-const PRUNE_MAX = 3;
+const PRUNE_MAX = 4;
 const N_KEY_COUNT = 2;
+
+// Quote size. A book that cannot fill a fifty-share order reads as a toy, and the homepage prices
+// exactly that order against a pool — so the depth has to be real. Bigger sizes cost nothing extra:
+// same number of orders, same number of transactions, just larger escrow amounts, and the demo
+// identities hold far more than they can ever quote.
+const quoteSize = () => BigInt(25 + Math.floor(Math.random() * 45));
 
 const RPC = process.env.RPC_URL || venue.rpcUrl;
 const conn = new Connection(RPC, "confirmed");
@@ -177,7 +183,7 @@ export async function POST(req: Request) {
         if (price <= 0n) continue;
         const maker = demos[(i + (side === ASK ? 0 : 1)) % demos.length];
         try {
-          const ix = await buildPlace(m, maker, side, price, BigInt(3 + Math.floor(Math.random() * 6)));
+          const ix = await buildPlace(m, maker, side, price, quoteSize());
           if (ix) sent.push(await fire(ix, [maker], blockhash));
         } catch { skipped.push(`${side === ASK ? "ask" : "bid"}@${price}`); }
       }

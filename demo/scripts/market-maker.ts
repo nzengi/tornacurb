@@ -217,7 +217,7 @@ async function step(m: Market) {
       if (side === ASK && bestBid !== undefined && price <= bestBid) price = bestBid + 1n;
       if (side === BID && bestAsk !== undefined && price >= bestAsk) price = bestAsk - 1n;
       if (price <= 0n) continue;
-      const size = BigInt(3 + Math.floor(Math.random() * 6));
+      const size = BigInt(25 + Math.floor(Math.random() * 45));
       const maker = demos[(i + (side === ASK ? 0 : 1)) % demos.length];
       try {
         await place(m, maker, side, price, size);
