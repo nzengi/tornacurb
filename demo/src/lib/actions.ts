@@ -7,7 +7,7 @@
 // Every action takes the LiveMarket it applies to — the venue lists eight of them and nothing here
 // may assume a "current" one. Trees, vaults and mints all come off that market.
 import "./polyfill";
-import { Keypair, PublicKey, Transaction, sendAndConfirmTransaction, type Connection } from "@solana/web3.js";
+import { Keypair, PublicKey, Transaction, type Connection } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { keys } from "torna-sdk";
 import { ASK, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "./orderbook";
@@ -24,11 +24,44 @@ export interface Actor {
   send: (tx: Transaction) => Promise<string>;
 }
 
+/** Confirm by polling signature status, not by websocket subscription.
+ *
+ *  The browser talks to the chain through our own /api/rpc proxy, which is HTTP only — there is no
+ *  websocket behind it. web3.js derives a ws endpoint from the RPC url and, when the subscription
+ *  never establishes, its confirmation path reports "block height exceeded" for transactions that
+ *  in fact landed. Telling a trader their order failed when it is resting on the book is worse than
+ *  telling them nothing, so confirmation is done the boring way: ask for the status until it is
+ *  confirmed, the transaction actually errors, or the blockhash genuinely expires. */
+async function confirmByPolling(conn: Connection, sig: string, lastValidBlockHeight: number): Promise<string> {
+  for (;;) {
+    const { value } = await conn.getSignatureStatuses([sig]);
+    const st = value[0];
+    if (st?.err) throw new Error(`transaction failed on chain: ${JSON.stringify(st.err)}`);
+    if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") return sig;
+    if ((await conn.getBlockHeight("confirmed")) > lastValidBlockHeight) {
+      // genuinely expired: one last look, because it can land in the same breath
+      const final = (await conn.getSignatureStatuses([sig])).value[0];
+      if (final?.confirmationStatus) return sig;
+      throw new Error("transaction expired before it was confirmed; please retry");
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
+
+async function signSendConfirm(conn: Connection, tx: Transaction, payer: PublicKey, sign: (t: Transaction) => Promise<Transaction> | Transaction): Promise<string> {
+  const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = payer;
+  const signed = await sign(tx);
+  const sig = await conn.sendRawTransaction(signed.serialize(), { preflightCommitment: "confirmed" });
+  return confirmByPolling(conn, sig, lastValidBlockHeight);
+}
+
 /** A pre-funded demo identity that signs locally. */
 export function keypairActor(kp: Keypair): Actor {
   return {
     publicKey: kp.publicKey,
-    send: (tx) => sendAndConfirmTransaction(connection(), tx, [kp], { commitment: "confirmed" }),
+    send: (tx) => signSendConfirm(connection(), tx, kp.publicKey, (t) => { t.sign(kp); return t; }),
   };
 }
 
@@ -41,14 +74,14 @@ export function walletActor(
     publicKey,
     send: async (tx) => {
       const conn = connection();
-      // blockhash-based confirmation (not the deprecated sig-only overload): bounds confirmation by
-      // block height so it can't hang indefinitely or false-fail a landed tx.
+      // The wallet adapter signs and sends; confirmation is polled for the same reason as above —
+      // there is no websocket behind /api/rpc, and a false failure on a landed order is the worst
+      // thing this screen can say.
       const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
       const sig = await sendTransaction(tx, conn);
-      await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-      return sig;
+      return confirmByPolling(conn, sig, lastValidBlockHeight);
     },
   };
 }
