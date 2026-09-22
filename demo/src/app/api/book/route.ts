@@ -4,7 +4,7 @@
 // (a load-balancer effect) and the RPC is never hit "constantly". The RPC is server-only (RPC_URL
 // env, defaults to public devnet) so no key is exposed to the browser.
 //
-// The cache is keyed by symbol: eight listings each get their own snapshot and their own TTL, so a
+// The cache is keyed by symbol: each listing gets its own snapshot and its own TTL, so a
 // viewer sitting on OPENAI never forces a re-read of the other seven.
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";

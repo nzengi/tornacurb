@@ -62,7 +62,7 @@ export default function Home() {
         <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">The venue</div>
-            <h2 className="display mt-2 text-3xl font-semibold tracking-tight">Eight listings, two kinds</h2>
+            <h2 className="display mt-2 text-3xl font-semibold tracking-tight">Ten listings, two kinds</h2>
             <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-muted">
               The split is the argument. For most of these private companies nothing publishes a price at
               all; Pyth does index OpenAI and Anthropic, but an index reports discovery happening on
@@ -134,7 +134,7 @@ export default function Home() {
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { t: "How to trade", d: "Three minutes, no wallet needed.", href: "/guide" },
-            { t: "Markets", d: "Trade all eight listings on devnet.", href: "/trade" },
+            { t: "Markets", d: "Trade all ten listings on devnet.", href: "/trade" },
             { t: "Why a book", d: "The market-structure case, in full.", href: "/why" },
             { t: "Explorer", d: "Decode the live on-chain trees and transactions.", href: "/explorer" },
           ].map((c) => (

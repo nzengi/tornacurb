@@ -24,7 +24,7 @@ export default async function DocsPage({ searchParams }: { searchParams: Promise
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Documentation</p>
       <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted">
         Two layers, documented separately. <span className="font-medium text-fg">TornaCurb</span> is the
-        venue — eight order books for pre-IPO stock tokens. <span className="font-medium text-fg">Torna</span>{" "}
+        venue — ten order books, eight of them PreStocks pre-IPO tokens. <span className="font-medium text-fg">Torna</span>{" "}
         is the on-chain index underneath it, which you can build your own sorted state on.
       </p>
       <p className="mt-2 text-sm text-muted">

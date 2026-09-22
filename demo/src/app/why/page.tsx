@@ -238,8 +238,8 @@ export default function WhyPage() {
           <P>
             <strong className="text-fg">We are not issuing anything.</strong> That distinction is
             worth stating plainly, because it is what makes the path walkable. The shares are issued,
-            custodied and legally wrapped by PreStocks, Tessera, Ondo and Backed; those tokens already
-            exist and already trade. TornaCurb does not create exposure to a private company — it
+            custodied and legally wrapped by their issuers — every pre-IPO name here is a PreStocks
+            token. Those tokens already exist and already trade. TornaCurb does not create exposure to a private company — it
             gives exposure that is already trading somewhere worse a better place to trade. A matching
             venue for existing tokens is a different undertaking, legally and operationally, from an
             issuer.
@@ -247,7 +247,7 @@ export default function WhyPage() {
           <P>
             <strong className="text-fg">Liquidity is the real gate.</strong> An order book with no
             makers is worse than a pool: a pool at least always quotes, while an empty book just looks
-            broken. So the venue does not open with eight listings on mainnet. It opens with one, with
+            broken. So the venue does not open with ten listings on mainnet. It opens with one, with
             a maker who has committed to quote it, and widens only as fast as someone is willing to
             stand behind each new name. Rebates on resting volume are the standard way to pay for
             that, and they cost nothing until somebody actually quotes.

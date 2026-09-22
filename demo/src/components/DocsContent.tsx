@@ -556,7 +556,7 @@ export function DexDocs() {
         <P>
           TornaCurb is a central limit order book for pre-IPO stock tokens, built entirely on Torna. A
           listing is two Torna trees (ask + bid) plus SPL-Token escrow, owned by a book PDA; the venue
-          runs eight of them against one shared quote mint. Place, cancel and match are real on-chain
+          runs ten of them against one shared quote mint. Place, cancel and match are real on-chain
           transactions. This tab documents how the CLOB maps onto the index; the Torna tab documents the
           index itself.
         </P>
@@ -578,7 +578,7 @@ export function DexDocs() {
 
       <section>
         <H id="live" kicker="Proof">Live on devnet, with a real transaction</H>
-        <P>Both programs are deployed and all eight listings are initialized and seeded. The programs and the shared quote mint are venue-wide; each listing has its own cfg, book PDA, trees and vaults, which the <a className="text-brand hover:text-brand-hi" href="/explorer">explorer</a> decodes per listing. Every address opens on the Solana Explorer.</P>
+        <P>Both programs are deployed and every listing is initialized and seeded. The programs and the shared quote mint are venue-wide; each listing has its own cfg, book PDA, trees and vaults, which the <a className="text-brand hover:text-brand-hi" href="/explorer">explorer</a> decodes per listing. Every address opens on the Solana Explorer.</P>
         <div className="mt-4 divide-y divide-line/60 rounded-xl border border-line bg-panel px-4">
           {[
             ["Torna engine program", VENUE.tornaProgramId],
