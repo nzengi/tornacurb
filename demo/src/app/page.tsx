@@ -35,7 +35,13 @@ export default function Home() {
               Why an order book
             </Link>
           </div>
-          <p className="mt-5 text-xs text-faint">Live on devnet · real SPL escrow, no indexer · external audit pending</p>
+          <p className="enter mt-5 text-sm text-muted" style={{ animationDelay: "260ms" }}>
+            Never used an order book?{" "}
+            <Link href="/guide" className="font-medium text-brand hover:text-brand-hi">
+              Three minutes, no wallet needed →
+            </Link>
+          </p>
+          <p className="mt-3 text-xs text-faint">Live on devnet · real SPL escrow, no indexer · external audit pending</p>
         </div>
       </section>
 
@@ -127,8 +133,9 @@ export default function Home() {
         <h2 className="display text-center text-2xl font-semibold tracking-tight">Look under it yourself</h2>
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
+            { t: "How to trade", d: "Three minutes, no wallet needed.", href: "/guide" },
             { t: "Markets", d: "Trade all eight listings on devnet.", href: "/trade" },
-            { t: "Why a book", d: "The market-structure case, in full.", href: "/research" },
+            { t: "Why a book", d: "The market-structure case, in full.", href: "/why" },
             { t: "Explorer", d: "Decode the live on-chain trees and transactions.", href: "/explorer" },
           ].map((c) => (
             <Link key={c.t} href={c.href} className="group rounded-xl border border-line bg-panel p-5 transition-colors duration-150 hover:border-brand/40">
