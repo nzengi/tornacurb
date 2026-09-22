@@ -130,7 +130,6 @@ export default function Home() {
             { t: "Markets", d: "Trade all eight listings on devnet.", href: "/trade" },
             { t: "Why a book", d: "The market-structure case, in full.", href: "/research" },
             { t: "Explorer", d: "Decode the live on-chain trees and transactions.", href: "/explorer" },
-            { t: "Docs", d: "The venue and the primitive underneath it.", href: "/docs" },
           ].map((c) => (
             <Link key={c.t} href={c.href} className="group rounded-xl border border-line bg-panel p-5 transition-colors duration-150 hover:border-brand/40">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-fg">{c.t} <ArrowRight className="h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100" aria-hidden /></div>
