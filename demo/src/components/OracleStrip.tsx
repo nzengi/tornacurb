@@ -1,58 +1,102 @@
 "use client";
 
-// What the outside world says this listing is worth. Three answers, and keeping them apart is the
-// venue's whole argument:
-//   none      nothing publishes a price at all. The book is the only price there is.
-//   index     Pyth publishes a derived 24/7 index. Real, but not an exchange price — there is no
-//             exchange. It reports discovery happening elsewhere; it does not perform it.
-//   exchange  a listed ticker with a primary market behind it. The control group.
+// What the outside world says this listing is worth, and how much of that to believe.
 //
-// Whichever it is, the Pyth credential state is reported precisely rather than blurred: no key, a
-// key without the right grant, or a real mark. In the middle case a live price fetched through the
-// same client on an entitled feed makes "integration pending" checkable rather than a claim.
+// For the pre-IPO names the answer comes from the issuer. Every one of them is a PreStocks token,
+// and PreStocks publishes two numbers: the mark, which is what the SPV says the underlying private
+// company is worth, and the token price, which is what the claim on it actually changes hands at.
+// The gap between them is the argument this venue exists to make — a claim with no exchange behind
+// it drifts from the thing it tracks, and the thinner the secondary market, the further it drifts.
+// Showing the issuer's own numbers, including the ones that are inconvenient, is the point.
+//
+// For the listed control pair the reference is a real exchange price via Pyth, reported with its
+// credential state rather than blurred: no key, a key without the right grant, or a real mark.
 import { useEffect, useState } from "react";
 import { liveMarket } from "@/lib/venue";
+import { shorten } from "@/lib/market";
 
 interface MarkResponse {
   oracle: boolean;
   refKind?: "none" | "index" | "exchange";
   state?: "ok" | "unauthenticated" | "unentitled" | "stale" | "error";
-  price?: number;
-  conf?: number;
-  publishTime?: number;
-  feedId?: string;
-  feedSymbol?: string;
+  price?: number; conf?: number; feedId?: string; feedSymbol?: string;
   reason?: string;
   proof?: { symbol: string; price: number; publishTime: number } | null;
 }
+interface IssuerResponse {
+  issuer: boolean; live?: boolean; unavailable?: boolean;
+  symbol?: string; name?: string; mint?: string | null; url?: string | null;
+  markPrice?: number; tokenPrice?: number; premium?: number;
+  reason?: string;
+}
 
-const usd = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-const short = (id: string) => `${id.slice(0, 8)}…${id.slice(-6)}`;
+const usd = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (v: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
 
 export function OracleStrip({ symbol }: { symbol: string }) {
   const m = liveMarket(symbol);
-  const [r, setR] = useState<MarkResponse | null>(null);
+  const [mark, setMark] = useState<MarkResponse | null>(null);
+  const [issuer, setIssuer] = useState<IssuerResponse | null>(null);
 
   useEffect(() => {
     if (!symbol) return;
     let alive = true;
     const load = () => {
       fetch(`/api/mark?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" })
-        .then((res) => res.json())
-        .then((j) => { if (alive) setR(j); })
-        .catch(() => { if (alive) setR(null); });
+        .then((r) => r.json()).then((j) => { if (alive) setMark(j); }).catch(() => { if (alive) setMark(null); });
+      fetch(`/api/prestocks?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" })
+        .then((r) => r.json()).then((j) => { if (alive) setIssuer(j); }).catch(() => { if (alive) setIssuer(null); });
     };
     load();
-    const id = setInterval(() => { if (!document.hidden) load(); }, 30_000);
+    const id = setInterval(() => { if (!document.hidden) load(); }, 60_000);
     return () => { alive = false; clearInterval(id); };
   }, [symbol]);
 
   if (!m) return null;
 
-  const kind = r?.refKind;
+  // ---- pre-IPO: the issuer's own numbers -------------------------------------------------
+  if (issuer?.issuer && issuer.markPrice !== undefined && issuer.tokenPrice !== undefined) {
+    const prem = issuer.premium ?? 0;
+    const wide = Math.abs(prem) >= 0.1;
+    return (
+      <div className="rounded-xl border border-line bg-panel px-4 py-3">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">Issuer · PreStocks</span>
+          <span className="text-sm text-muted">mark <span className="nums font-medium text-fg">${usd(issuer.markPrice)}</span></span>
+          <span className="text-sm text-muted">token <span className="nums font-medium text-fg">${usd(issuer.tokenPrice)}</span></span>
+          <span className={`nums text-sm font-medium ${prem >= 0 ? "text-bid" : "text-ask"}`}>{pct(prem)}</span>
+          {issuer.live === false && <span className="text-[11px] text-serial">last resolved</span>}
+          {issuer.url && (
+            <a href={issuer.url} target="_blank" rel="noreferrer" className="text-[11px] text-brand hover:text-brand-hi">
+              {issuer.symbol} on prestocks.com ↗
+            </a>
+          )}
+          {issuer.mint && <span className="nums text-[11px] text-faint">{shorten(issuer.mint)} · mainnet</span>}
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-faint">
+          {wide ? (
+            <>
+              The token trades <strong className="text-muted">{pct(prem)}</strong> away from the mark
+              it tracks. That gap is not a mispricing to be scolded — it is what happens to a claim
+              with no exchange behind it. Closing it is what the book below is for.
+            </>
+          ) : (
+            <>
+              The mark is what the SPV says {issuer.name ?? m.name} is worth; the token price is what
+              the claim on it actually trades at. Neither is an exchange price — there is no exchange —
+              which is why the book below is where the price gets made.
+            </>
+          )}
+          {mark?.refKind === "index" && mark.feedSymbol && (
+            <> Pyth also publishes a derived index for it (<span className="nums">{mark.feedSymbol}</span>), gated behind a Pro grant.</>
+          )}
+        </p>
+      </div>
+    );
+  }
 
-  // nothing publishes a price for this one. That absence is the headline, not an error.
-  if (kind === "none") {
+  // ---- nothing published at all ----------------------------------------------------------
+  if (mark?.refKind === "none") {
     return (
       <div className="rounded-xl border border-line bg-panel px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -67,50 +111,31 @@ export function OracleStrip({ symbol }: { symbol: string }) {
     );
   }
 
-  const state = r?.state;
+  // ---- the listed control pair -----------------------------------------------------------
+  const state = mark?.state;
   return (
     <div className="rounded-xl border border-line bg-panel px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">
-          {kind === "index" ? "Pyth index" : "Pyth reference"}
-        </span>
-
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">Pyth reference</span>
         {state === "ok" || state === "stale" ? (
           <>
-            <span className="nums text-sm font-medium text-fg">{usd(r!.price!)}</span>
-            {r!.conf !== undefined && <span className="nums text-[11px] text-faint">±{usd(r!.conf)}</span>}
+            <span className="nums text-sm font-medium text-fg">${usd(mark!.price!)}</span>
             {state === "stale" && <span className="text-[11px] text-serial">stale</span>}
           </>
         ) : (
           <span className="text-sm font-medium text-serial">
-            {state === "unentitled" ? "awaiting Pyth Pro grant" : state === "unauthenticated" ? "not configured" : "unavailable"}
+            {state === "unentitled" ? "awaiting Pyth Pro grant" : state === "unauthenticated" ? "not configured" : "loading"}
           </span>
         )}
-
-        {r?.feedSymbol && <span className="nums text-[11px] text-faint">{r.feedSymbol}</span>}
-        {r?.feedId && <span className="nums text-[11px] text-faint">{short(r.feedId)}</span>}
+        {mark?.feedSymbol && <span className="nums text-[11px] text-faint">{mark.feedSymbol}</span>}
       </div>
-
-      {kind === "index" && (
-        <p className="mt-2 text-[11px] leading-relaxed text-faint">
-          Pyth publishes a derived 24/7 index for {m.name}. It is not an exchange price — there is no
-          exchange — so it reports discovery happening on secondary venues rather than performing it.
-          An index also gives you no limit order and no price-time priority, which is what the book
-          below is for.
-        </p>
-      )}
-
       {state === "unentitled" && (
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
           The key authenticates; Pyth gates equity feeds behind a Pro grant.{" "}
-          {r?.proof ? (
-            <>
-              Same client, same auth, on a feed this key can read:{" "}
-              <span className="nums text-muted">{r.proof.symbol} {usd(r.proof.price)}</span> — so the
-              integration is working, only the equity entitlement is missing.
-            </>
-          ) : (
-            <>The integration is wired and gated on that grant.</>
+          {mark?.proof && (
+            <>Same client, same auth, on a feed this key can read:{" "}
+            <span className="nums text-muted">{mark.proof.symbol} {usd(mark.proof.price)}</span> — so the
+            integration is working, only the equity entitlement is missing.</>
           )}
         </p>
       )}
