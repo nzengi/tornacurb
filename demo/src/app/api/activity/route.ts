@@ -61,8 +61,12 @@ export async function GET() {
     return NextResponse.json({ rows: listCache.rows }, { headers: { "cache-control": "public, max-age=10" } });
   }
   try {
-    const sigs = await conn.getSignaturesForAddress(OB, { limit: 8 }, "confirmed");
-    // Decode SEQUENTIALLY, not in a parallel burst: public devnet rate-limits many getTransaction calls
+    // Eight rows was sized for public devnet's rate limit. With the market maker re-quoting every
+    // minute, that window is under a minute wide — a visitor who places an order and then looks at
+    // this panel has already watched it scroll off. The server reads through the dedicated RPC now,
+    // so a wider window costs nothing that matters, and decoded rows are cached by signature.
+    const sigs = await conn.getSignaturesForAddress(OB, { limit: 30 }, "confirmed");
+    // Decode SEQUENTIALLY, not in a parallel burst: an RPC rate-limits many getTransaction calls
     // of the same method at once. Decoded results are cached by signature, so a warm instance only fetches
     // new signatures (usually 0-2 per poll), keeping steady-state load tiny.
     const rows: Row[] = [];
