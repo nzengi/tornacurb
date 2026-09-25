@@ -816,6 +816,84 @@ fn main() {
         check!(env.bulk_insert_fast(&p, tx, &[12, 35]).is_err(), "cross-leaf bulk (key past separator) rejected");
     }
 
+    // ---- security: a RangeScan scratch must not pass for a node ----
+    // RangeScan writes caller-chosen keys/values into any zeroed program-owned account, and those
+    // bytes land exactly where a node header keeps node_idx, next_leaf_idx and tree_uid. check_node
+    // bound idx + tenant but only tested initialized/is_leaf for non-zero -- which the scratch's
+    // "SCR4" magic satisfies -- so a forged leaf of someone else's tree was accepted, with the
+    // magic's "R4" read as key_count 0x3452 and every read past the account's end.
+    {
+        let (tv, tf) = (60u32, 61u32);
+        let c = p.pubkey();
+        env.init(&p, tv);
+        for n in [10u32, 20, 30, 40, 50] { env.insert(&p, tv, n).unwrap(); } // L0={10,20} -> L1={30,40,50}
+        let l0 = env.path(&c, tv, &k32(10)).last().copied().unwrap();
+        let l1 = env.path(&c, tv, &k32(50)).last().copied().unwrap();
+        check!(l0 != l1, "setup: victim tree has two leaves");
+        let uid: [u8; 16] = env.acc(&env.pda_hdr(&c, tv).0).unwrap()[122..138].try_into().unwrap();
+
+        // the attacker's one entry, laid out so that at scratch offset 6 it forms a node header:
+        // key[6..14] -> node_idx, key[14..22] -> next_leaf_idx, key[22..32] + value[0..6] -> tree_uid
+        let mut key = [0u8; 32];
+        key[6..14].copy_from_slice(&l1.to_le_bytes());   // poses as L1 for a forward scan
+        key[14..22].copy_from_slice(&l1.to_le_bytes());  // poses as L1's predecessor for a reverse scan
+        key[22..32].copy_from_slice(&uid[0..10]);
+        let mut val = [0u8; VS]; val[0..6].copy_from_slice(&uid[10..16]);
+        let qc = q.pubkey();
+        env.init(&q, tf);
+        {
+            let (hdr, _) = env.pda_hdr(&qc, tf);
+            let (alc, _) = env.pda_alloc(&qc, tf);
+            let (node, b) = env.pda_node(&qc, tf, 1);
+            let mut d = vec![2u8]; d.extend_from_slice(&key); d.extend_from_slice(&val);
+            d.push(0); d.push(1); d.extend_from_slice(&env.rent(env.node_size()).to_le_bytes()); d.push(b);
+            let metas = vec![AccountMeta::new(hdr, false), AccountMeta::new(qc, true), AccountMeta::new(alc, false),
+                AccountMeta::new_readonly(Pubkey::default(), false), AccountMeta::new(node, false)];
+            env.run(&q, Instruction::new_with_bytes(prog, &d, metas)).expect("attacker insert");
+        }
+        // a zeroed account the program owns (anyone can create one with the system program) ...
+        let zeroed = |env: &mut Env, len: usize| -> Pubkey {
+            let k = Pubkey::new_unique();
+            env.svm.set_account(k, solana_sdk::account::Account {
+                lamports: 1_000_000_000, data: vec![0u8; len], owner: prog, executable: false, rent_epoch: 0 }).unwrap();
+            k
+        };
+        let range = |env: &mut Env, who: &Keypair, t: u32, scratch: Pubkey, from: u32, to: [u8; 32], dir: u8, extra: &[Pubkey]| {
+            let wc = who.pubkey();
+            let start = if from == u32::MAX { key } else { k32(from) };
+            let path = env.path(&wc, t, &start);
+            let mut d = vec![4u8]; d.extend_from_slice(&start); d.extend_from_slice(&to);
+            d.push(path.len() as u8); d.extend_from_slice(&16u16.to_le_bytes());
+            if dir == 1 { d.push(1); }
+            let mut metas = vec![AccountMeta::new_readonly(env.pda_hdr(&wc, t).0, false), AccountMeta::new(scratch, false)];
+            for &n in &path { metas.push(AccountMeta::new_readonly(env.pda_node(&wc, t, n).0, false)); }
+            for &x in extra { metas.push(AccountMeta::new_readonly(x, false)); }
+            env.run(who, Instruction::new_with_bytes(prog, &d, metas))
+        };
+        // ... which the attacker's own RangeScan turns into the forged leaf
+        let ns = env.node_size();
+        let fake = zeroed(&mut env, ns);
+        range(&mut env, &q, tf, fake, u32::MAX, key, 0, &[]).expect("attacker scan into the fake");
+        let fd = env.acc(&fake).unwrap();
+        check!(fd[12..20] == l1.to_le_bytes() && fd[28..44] == uid,
+            "setup: the scratch now carries the victim leaf's node_idx and tree_uid");
+
+        // control: the real chain scans fine
+        let out = zeroed(&mut env, 6 + 16 * (KEY + VS));
+        let real_l1 = env.pda_node(&c, tv, l1).0;
+        check!(range(&mut env, &p, tv, out, 10, k32(1000), 0, &[real_l1]).is_ok(), "control: forward scan over the real L1");
+        // forward: the fake as L0's next leaf
+        let out = zeroed(&mut env, 6 + 16 * (KEY + VS));
+        let r = range(&mut env, &p, tv, out, 10, k32(1000), 0, &[fake]);
+        check!(r.as_ref().is_err_and(|e| e.contains("Custom(113)")),
+            format!("SECURITY: forward RangeScan rejects a scratch posing as the next leaf (NODE_UNINIT), got {r:?}"));
+        // reverse: the fake as L1's predecessor
+        let out = zeroed(&mut env, 6 + 16 * (KEY + VS));
+        let r = range(&mut env, &p, tv, out, 50, k32(0), 1, &[fake]);
+        check!(r.as_ref().is_err_and(|e| e.contains("Custom(113)")),
+            format!("SECURITY: reverse RangeScan rejects a scratch posing as the predecessor leaf (NODE_UNINIT), got {r:?}"));
+    }
+
     println!("\nCU: Insert(first/split-path)={cu_split}  InsertFast={cu_fast}  Find={cu_find}");
     check!(cu_fast < 30_000, "InsertFast CU under 30k budget");
     check!(cu_find < 30_000, "Find CU under 30k budget");
