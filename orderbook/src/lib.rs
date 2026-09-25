@@ -26,6 +26,7 @@ const MAXK: usize = 8;
 
 // SPL Token program + token-account layout (mint @0, owner @32, amount @64)
 const TOKEN_PROGRAM: Pubkey = solana_program::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const ATA_PROGRAM: Pubkey = solana_program::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const TA_MINT: usize = 0;
 const TA_OWNER: usize = 32;
 const TOKEN_TRANSFER: u8 = 3;
@@ -156,6 +157,15 @@ fn init_market(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pr
     if ta_field(quote_vault, TA_OWNER)? != book.key.to_bytes() || ta_field(quote_vault, TA_MINT)? != quote_mint.key.to_bytes() {
         return Err(ProgramError::InvalidArgument);
     }
+    // ...and specifically the book PDA's ATAs. Owner==book is not enough: SPL Token keeps a
+    // close_authority across an AccountOwner transfer, so a hand-made account can be book-owned
+    // today, closed by whoever kept that authority once it is empty, and re-created at the same
+    // address under them. An ATA is created book-owned with no close authority, and only the
+    // book PDA (which never signs SetAuthority) could add one.
+    for (vault, mint) in [(base_vault, base_mint), (quote_vault, quote_mint)] {
+        let (ata, _) = Pubkey::find_program_address(&[book.key.as_ref(), TOKEN_PROGRAM.as_ref(), mint.key.as_ref()], &ATA_PROGRAM);
+        if ata != *vault.key { return Err(ProgramError::InvalidArgument); }
+    }
     // Each header must be a GENUINE Torna header that ONLY the book PDA can write:
     // owner==torna, magic, version, NOT open, authority==book PDA, value_size==40. Else an
     // attacker could insert UNESCROWED orders directly via Torna (open/own-authority tree)
@@ -272,6 +282,11 @@ fn place(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     check_book(&cfg, &accounts[2], &accounts[3], side == ASK)?; // bind the book (program + tree)
     let (want_vault, want_mint) = if side == ASK { (cfg.base_vault, cfg.base_mint) } else { (cfg.quote_vault, cfg.quote_mint) };
     if accounts[5].key.to_bytes() != want_vault { return Err(ProgramError::InvalidArgument); }
+    // the configured address must still be the book's account when tokens go in: a market set up
+    // before InitMarket required ATAs may name a vault that has since been closed and re-created
+    // under someone else. accounts[1] is the book PDA -- the Torna insert below signs as it and
+    // fails otherwise.
+    if ta_field(&accounts[5], TA_OWNER)? != accounts[1].key.to_bytes() { return Err(ProgramError::IllegalOwner); }
     if ta_field(&accounts[4], TA_MINT)? != want_mint { return Err(ProgramError::InvalidArgument); }
 
     // escrow into the vault (maker authorizes). ASK locks `size` base; BID `price*size` quote.
@@ -315,6 +330,11 @@ fn place_cold(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     check_book(&cfg, &accounts[2], &accounts[3], side == ASK)?;
     let (want_vault, want_mint) = if side == ASK { (cfg.base_vault, cfg.base_mint) } else { (cfg.quote_vault, cfg.quote_mint) };
     if accounts[5].key.to_bytes() != want_vault { return Err(ProgramError::InvalidArgument); }
+    // the configured address must still be the book's account when tokens go in: a market set up
+    // before InitMarket required ATAs may name a vault that has since been closed and re-created
+    // under someone else. accounts[1] is the book PDA -- the Torna insert below signs as it and
+    // fails otherwise.
+    if ta_field(&accounts[5], TA_OWNER)? != accounts[1].key.to_bytes() { return Err(ProgramError::IllegalOwner); }
     if ta_field(&accounts[4], TA_MINT)? != want_mint { return Err(ProgramError::InvalidArgument); }
 
     if size == 0 || price == 0 { return Err(ProgramError::InvalidArgument); } // no zero/0-price orders (matcher DoS)
