@@ -17,6 +17,10 @@ HOSTFLAGS = -DTORNA_DEBUG -O1 -std=c11 -Wall -Wextra -Werror
 BUILD    = build
 
 SBF_SDK := $(HOME)/.local/share/solana/install/active_release/bin/platform-tools-sdk/sbf
+# platform-tools for the Rust programs (orderbook, cpi-probe). Their solana-program 3.x dependency
+# tree needs edition 2024 (rustc >= 1.85), newer than the platform-tools that ship with an older
+# Solana CLI, so pin a release that has it. Override with SBF_TOOLS=... ; the C engine is unaffected.
+SBF_TOOLS ?= v1.52
 
 .PHONY: all test test-asan sbf probe cpi-probe orderbook integration diff fuzz cu ts clean
 
@@ -36,11 +40,11 @@ probe:
 
 # Rust CPI probe (exercises the torna-cpi crate) -> sbf, via cargo build-sbf
 cpi-probe:
-	cd cpi-probe && cargo build-sbf --offline
+	cd cpi-probe && cargo build-sbf --offline --tools-version $(SBF_TOOLS)
 
 # reference orderbook program (uses torna-cpi) -> sbf
 orderbook:
-	cd orderbook && cargo build-sbf --offline
+	cd orderbook && cargo build-sbf --offline --tools-version $(SBF_TOOLS)
 
 # on-chain integration tests in LiteSVM (needs sbf/out/torna.so built first)
 integration: sbf probe cpi-probe orderbook

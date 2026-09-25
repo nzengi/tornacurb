@@ -3,49 +3,99 @@
 # The venue is on Vercel Hobby, where cron runs once a day — far too slow for a book that should
 # look alive — so the tick lives behind an authenticated endpoint and this workflow is what calls it.
 #
-# One run walks ALL listings rather than one, because Actions bills each job by the started minute:
-# a schedule per listing would cost that many times as much for the same work. Every five minutes is
-# the tightest cron GitHub honours, and scheduled runs are best-effort — they can land late under
-# load, which is fine here. A late re-quote is a stale book, not a broken one. (In practice, Sept 2026,
-# GitHub has been starting this every 3-5 hours rather than every 5 minutes, so the book is re-quoted
-# a handful of times a day; anything that needs it fresher needs another caller for /api/mm.)
+# GitHub's scheduler does not keep time for this: the */5 cron below has in practice started a run
+# every 3-5 hours (Sept 2026), not every 5 minutes. So a run does not tick once and exit. It loops,
+# walking every listing once per MM_INTERVAL_SECONDS for MM_LOOP_MINUTES (just under the 6h job
+# limit), and then dispatches the next run of itself before it ends. The concurrency group keeps it
+# to one loop at a time: a scheduled or relayed run waits for the current one, and GitHub keeps only
+# the newest waiting run. The cron stays as a restart for when the relay chain breaks.
+#
+# Cost scales with the interval: each listing tick is one /api/mm call (a Vercel function run of
+# ~30s) and a few dozen RPC requests. At the default 900s that is ~960 ticks a day across ten
+# listings. Lower MM_INTERVAL_SECONDS only as far as the RPC plan and Vercel plan allow.
+#
+# Repo settings this reads:
+#   secrets.CRON_SECRET          bearer token for /api/mm (required)
+#   vars.VENUE_URL               default https://tornacurb.vercel.app
+#   vars.MM_INTERVAL_SECONDS     seconds between the starts of two passes over all listings (default 900)
+#   vars.MM_LOOP_MINUTES         how long one run loops before relaying (default 340)
 name: market maker
 
 on:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch:      # so a human can kick it during a demo
+  workflow_dispatch:
+    inputs:
+      once:
+        description: "Tick every listing once and stop (no loop, no relay)"
+        type: boolean
+        default: false
 
 concurrency:
-  group: market-maker     # never let a delayed run overlap the next one
+  group: market-maker     # one loop at a time; newer runs wait, and only the newest one waits
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write          # to dispatch the next run of this workflow
 
 jobs:
   quote:
     runs-on: ubuntu-latest
-    timeout-minutes: 15     # ~30s per listing in practice, but each call may take up to 70s
+    timeout-minutes: 355  # the loop ends at MM_LOOP_MINUTES; this only catches a hung run
     steps:
-      - name: Tick every listing
+      - name: Quote every listing, on a loop
         env:
           BASE: ${{ vars.VENUE_URL || 'https://tornacurb.vercel.app' }}
           SECRET: ${{ secrets.CRON_SECRET }}
+          INTERVAL: ${{ vars.MM_INTERVAL_SECONDS || '900' }}
+          LOOP_MINUTES: ${{ vars.MM_LOOP_MINUTES || '340' }}
+          ONCE: ${{ inputs.once == true }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          # without the secret every tick is a 401; stop here rather than relay a run that cannot work
           if [ -z "$SECRET" ]; then echo "CRON_SECRET not set in repo secrets"; exit 1; fi
           # every symbol in LISTINGS (demo/src/lib/listings.ts); a listing left out here is never re-quoted
           SYMS=(OPENAI ANTHRO ANDURL NEURA KALSHI POLYMKT SPACEX FIGURE NVDA SPY)
-          fail=0
-          for s in "${SYMS[@]}"; do
-            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' --max-time 70 \
-              -X POST -H "authorization: Bearer $SECRET" "$BASE/api/mm?symbol=$s" || echo 000)
-            # a single listing failing must not abort the rest — the others still need quoting
-            if [ "$code" = "200" ]; then
-              echo "$s  $(cat /tmp/out.json)"
-            else
-              echo "$s  HTTP $code  $(cat /tmp/out.json 2>/dev/null | head -c 200)"
-              fail=$((fail+1))
-            fi
+
+          # one pass over every listing; returns how many failed
+          pass() {
+            local fail=0 s code
+            for s in "${SYMS[@]}"; do
+              code=$(curl -sS -o /tmp/out.json -w '%{http_code}' --max-time 70 \
+                -X POST -H "authorization: Bearer $SECRET" "$BASE/api/mm?symbol=$s" || echo 000)
+              # a single listing failing must not abort the rest — the others still need quoting
+              if [ "$code" = "200" ]; then
+                echo "$s  $(cat /tmp/out.json)"
+              else
+                echo "$s  HTTP $code  $(head -c 200 /tmp/out.json 2>/dev/null)"
+                fail=$((fail+1))
+              fi
+            done
+            return "$fail"
+          }
+
+          end=$(( $(date +%s) + LOOP_MINUTES * 60 ))
+          passes=0; dead=0
+          while :; do
+            start=$(date +%s)
+            echo "--- pass $((passes+1)) at $(date -u +%H:%M:%S)"
+            failed=0; pass || failed=$?   # (the step runs under bash -e)
+            passes=$((passes+1))
+            # a pass where EVERY listing failed is an outage, not devnet noise
+            if [ "$failed" -ge "${#SYMS[@]}" ]; then dead=$((dead+1)); echo "every listing failed"; fi
+            [ "$ONCE" = "true" ] && break
+            next=$(( start + INTERVAL ))
+            [ "$next" -ge "$end" ] && break
+            now=$(date +%s); [ "$next" -gt "$now" ] && sleep $(( next - now ))
           done
-          echo "---"
-          if [ "$fail" -gt 0 ]; then echo "$fail listing(s) failed"; fi
-          # only fail the run if EVERY listing failed; partial failure is normal devnet noise
-          if [ "$fail" -ge "${#SYMS[@]}" ]; then exit 1; fi
+          echo "=== $passes pass(es), $dead with every listing failing"
+
+          if [ "$ONCE" != "true" ]; then
+            # hand over to the next run; if this fails the */5 cron restarts the chain later
+            gh workflow run market-maker.yml --ref "$GITHUB_REF_NAME" \
+              && echo "relayed to the next run" || echo "relay failed; the cron will restart the loop"
+          fi
+          # fail the run only if nothing worked at all
+          if [ "$dead" -ge "$passes" ]; then exit 1; fi

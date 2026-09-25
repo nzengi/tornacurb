@@ -10,9 +10,10 @@
 //   2. One listing per call, chosen round-robin from the clock, so a dumb every-minute trigger
 //      still walks the whole venue without needing to track state.
 //
-// The demo identities are already public by design (they ship in venue.json and the browser signs
-// with them), so the secret here is not protecting keys — it is stopping a stranger from burning
-// the venue's devnet SOL by hammering the endpoint.
+// The maker quotes from mmMakers(): its own identities when MM_MAKERS is set (so a visitor cannot
+// cancel the quotes that make the book look alive), else the public demo traders. Either way the
+// bearer secret is not protecting keys — it stops a stranger burning the venue's devnet SOL by
+// hammering the endpoint.
 import { NextResponse } from "next/server";
 import { Connection, Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
@@ -20,6 +21,7 @@ import { Tree, keys, type AccountReader } from "torna-sdk";
 import { ASK, BID, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "@/lib/orderbook";
 import venue from "@/lib/venue.json";
 import { LISTINGS, openingMid, type Listing } from "@/lib/listings";
+import { mmMakers } from "@/lib/mm-makers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,7 +49,7 @@ const reader: AccountReader = {
   async accountData(k: PublicKey) { const a = await conn.getAccountInfo(k, "confirmed"); return a ? Uint8Array.from(a.data) : null; },
 };
 const rdU16 = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint16(o, true);
-const demos = (venue.demos as { secret: number[] }[]).map((d) => Keypair.fromSecretKey(Uint8Array.from(d.secret)));
+const demos = mmMakers(); // the maker's identities (see mm-makers.ts); named for what they were
 const ata = (mint: string, owner: PublicKey) => getAssociatedTokenAddressSync(new PublicKey(mint), owner, true);
 
 type Market = Listing & { marketId: number; askTreeId: number; bidTreeId: number; baseMint: string; baseVault: string; quoteVault: string };
