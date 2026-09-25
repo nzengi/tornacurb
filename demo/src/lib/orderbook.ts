@@ -89,17 +89,22 @@ export function transferAuthorityIx(
   });
 }
 
-/** InitMarket (disc 4): write + bind the market config PDA. */
+/** InitMarket (disc 4): write + bind the market config PDA.
+ *  `rent` is only read by programs deployed before the config grew a min_size field; the current
+ *  program sizes and funds the config itself. `minSize` is the smallest order (base atoms) the market
+ *  will rest, default 1. */
 export function initMarketIx(args: {
   orderbook: PublicKey; torna: PublicKey; marketId: bigint; payer: PublicKey;
   baseMint: PublicKey; quoteMint: PublicKey; baseVault: PublicKey; quoteVault: PublicKey;
   askHeader: PublicKey; bidHeader: PublicKey; askRoot: PublicKey; bidRoot: PublicKey; rent: bigint;
+  minSize?: bigint;
 }): TransactionInstruction {
   const [book, bump] = bookPda(args.orderbook, args.marketId);
   const [cfg, cfgBump] = cfgPda(args.orderbook, args.marketId);
   const data = concat([
     Uint8Array.of(INIT_MARKET), u64le(args.marketId),
     Uint8Array.of(bump), Uint8Array.of(cfgBump), u64le(args.rent),
+    ...(args.minSize !== undefined ? [u64le(args.minSize)] : []),
   ]);
   return new TransactionInstruction({
     programId: args.orderbook,
