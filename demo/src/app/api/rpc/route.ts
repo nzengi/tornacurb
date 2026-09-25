@@ -20,6 +20,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const UPSTREAM = process.env.RPC_URL || "https://api.devnet.solana.com";
+// Where a request goes when UPSTREAM is still rate-limiting after its retries. The dedicated RPC
+// allows only a few requests a second, and one explorer page load is dozens of reads in parallel, so
+// a burst used to come back as 429s the browser then retried for seconds (a book stuck on "reading
+// on-chain"). Public devnet is separately budgeted: slower, but an answer.
+const FALLBACK = "https://api.devnet.solana.com";
 
 // Everything the venue calls, and nothing else. Subscriptions are not here: they are websocket,
 // which this proxy does not carry.
@@ -115,16 +120,21 @@ export async function POST(req: Request) {
     // absorb the upstream's rate limit rather than passing it to the browser: web3.js would retry
     // anyway, but every one of those retries is a red line in a judge's console
     let res!: Response, text = "";
-    for (let attempt = 0; attempt < 3; attempt++) {
-      res = await fetch(UPSTREAM, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        cache: "no-store",
-      });
-      text = await res.text();
-      if (res.status !== 429 && !text.includes("-32429")) break;
-      await new Promise((r) => setTimeout(r, 180 * (attempt + 1)));
+    const limited = () => res.status === 429 || text.includes("-32429");
+    const endpoints = UPSTREAM === FALLBACK ? [UPSTREAM] : [UPSTREAM, FALLBACK];
+    for (const url of endpoints) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          cache: "no-store",
+        });
+        text = await res.text();
+        if (!limited()) break;
+        await new Promise((r) => setTimeout(r, 180 * (attempt + 1)));
+      }
+      if (!limited()) break;
     }
 
     if (cacheKey && res.ok && !text.includes('"error"')) readCache.set(cacheKey, { at: Date.now(), body: text });
