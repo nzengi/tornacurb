@@ -111,16 +111,16 @@ export async function POST(req: Request) {
     daySpent = Math.max(0, daySpent - CALL_COST); // clamp: a 24h reset between reserve+rollback can't go negative
   };
 
-  try {
-    // server-only route, so prefer the server-only endpoint: a dedicated RPC key belongs in
-    // RPC_URL, never in NEXT_PUBLIC_* which ships to every visitor's browser
-    const conn = new Connection(process.env.RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || venue.rpcUrl, "confirmed");
+  // One attempt against one endpoint. Server-only route, so prefer the server-only endpoint: a
+  // dedicated RPC key belongs in RPC_URL, never in NEXT_PUBLIC_* which ships to every browser.
+  const fund = async (conn: Connection): Promise<NextResponse> => {
     const faucet = faucetKey();
     const quoteMint = new PublicKey(venue.quoteMint);
     const quoteAta = getAssociatedTokenAddressSync(quoteMint, dest);
 
     // idempotent: skip if the wallet still holds cash. A trader who spent it all on shares can
-    // re-fund, which is the point. A missing ATA reads as 0.
+    // re-fund, which is the point. A missing ATA reads as 0. This also stops a second attempt from
+    // funding twice when the first one landed but could not be confirmed.
     const amt = async (a: PublicKey) => { try { return (await withRetry(() => getAccount(conn, a))).amount; } catch { return 0n; } };
     if ((await amt(quoteAta)) >= FUNDED_QUOTE) {
       rollback();
@@ -142,11 +142,13 @@ export async function POST(req: Request) {
     // send, then confirm by polling signature status: sendAndConfirmTransaction waits on the RPC's
     // websocket, which a serverless function cannot rely on (the browser path already polls, for the
     // same reason). Re-sending a signed transaction after a 429 is safe: it has one signature.
+    // Preflight is skipped: under load an RPC node's simulation can reject a sound transaction
+    // (a blockhash it has not seen yet); the status polling below catches a real failure anyway.
     const { blockhash, lastValidBlockHeight } = await withRetry(() => conn.getLatestBlockhash("confirmed"));
     tx.recentBlockhash = blockhash;
     tx.feePayer = faucet.publicKey;
     tx.sign(faucet);
-    const sig = await withRetry(() => conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }));
+    const sig = await withRetry(() => conn.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 3 }));
     for (;;) {
       const st = (await withRetry(() => conn.getSignatureStatuses([sig]))).value[0];
       if (st?.err) throw new Error(`faucet tx failed: ${JSON.stringify(st.err)}`);
@@ -155,9 +157,23 @@ export async function POST(req: Request) {
       await new Promise((r) => setTimeout(r, 800));
     }
     return NextResponse.json({ sig, quote: QUOTE_AMT.toString(), sol: SOL_LAMPORTS / 1e9 });
-  } catch (e) {
-    rollback(); // the spend didn't land; don't burn the user's dest cooldown
-    console.error("faucet error:", e);
-    return NextResponse.json({ error: "faucet unavailable, try again" }, { status: 500 });
+  };
+
+  // The dedicated endpoint first; if it fails, once more on public devnet, which is separately
+  // rate-limited. A visitor should not be turned away because one provider had a bad second.
+  const PUBLIC = "https://api.devnet.solana.com";
+  const primary = process.env.RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || venue.rpcUrl;
+  let lastErr: unknown;
+  for (const url of primary === PUBLIC ? [PUBLIC] : [primary, PUBLIC]) {
+    try {
+      return await fund(new Connection(url, "confirmed"));
+    } catch (e) {
+      lastErr = e;
+      console.error(`faucet attempt failed (${url === PUBLIC ? "public devnet" : "RPC_URL"}):`, e);
+    }
   }
+  rollback(); // the spend didn't land; don't burn the user's dest cooldown
+  // a short reason, scrubbed of any endpoint (the RPC URL can carry a key), so a failure is diagnosable
+  const reason = String((lastErr as Error)?.message ?? lastErr).replace(/https?:\/\/\S+/g, "<rpc>").replace(/api-key=\S+/gi, "").slice(0, 120);
+  return NextResponse.json({ error: "faucet unavailable, try again", reason }, { status: 500 });
 }
