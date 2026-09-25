@@ -5,7 +5,7 @@
 // who opens the venue sees a market rather than a fixture.
 //
 // It also makes the parallelism claim honest rather than theoretical: the quotes on each side are
-// spread across the four demo identities at different price levels, which is exactly the case Torna
+// spread across the maker identities (MM_MAKERS, else the demo traders) at different price levels, which is exactly the case Torna
 // is built for — different leaves, same slot.
 //
 // Run from demo/:
@@ -23,6 +23,7 @@ import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Tree, keys, type AccountReader } from "torna-sdk";
 import { ASK, BID, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "../src/lib/orderbook";
 import { LISTINGS, openingMid, type Listing } from "../src/lib/listings";
+import { mmMakers } from "../src/lib/mm-makers";
 
 const V = JSON.parse(readFileSync(join(import.meta.dirname, "../src/lib/venue.json"), "utf8"));
 const conn = new Connection(process.env.RPC ?? V.rpcUrl, "confirmed");
@@ -45,7 +46,7 @@ const reader: AccountReader = {
   async accountData(k: PublicKey) { const a = await conn.getAccountInfo(k, "confirmed"); return a ? Uint8Array.from(a.data) : null; },
 };
 const rdU16 = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint16(o, true);
-const demos: Keypair[] = V.demos.map((d: { secret: number[] }) => Keypair.fromSecretKey(Uint8Array.from(d.secret)));
+const demos: Keypair[] = mmMakers(); // MM_MAKERS if set, else the demo traders (see mm-makers.ts)
 const ata = (mint: string, owner: PublicKey) => getAssociatedTokenAddressSync(new PublicKey(mint), owner, true);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
