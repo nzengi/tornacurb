@@ -10,6 +10,7 @@ import { useState } from "react";
 import { Terminal } from "./Terminal";
 import { OracleStrip } from "./OracleStrip";
 import { liveMarkets, type LiveMarket } from "@/lib/venue";
+import type { InitialBook } from "@/lib/useBook";
 
 function Strip({ title, note, rows, sel, onPick }: {
   title: string; note: string; rows: LiveMarket[]; sel: string; onPick: (s: string) => void;
@@ -43,7 +44,7 @@ function Strip({ title, note, rows, sel, onPick }: {
   );
 }
 
-export function Venue() {
+export function Venue({ initial }: { initial?: InitialBook | null }) {
   const markets = liveMarkets();
   const [sel, setSel] = useState(markets[0]?.symbol ?? "");
 
@@ -73,7 +74,7 @@ export function Venue() {
         </p>
       </div>
       <OracleStrip symbol={sel} />
-      <Terminal key={sel} symbol={sel} />
+      <Terminal key={sel} symbol={sel} initial={initial} />
     </div>
   );
 }

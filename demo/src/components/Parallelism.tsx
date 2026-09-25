@@ -36,9 +36,12 @@ export function Parallelism() {
             <span className="text-sm text-muted">more committed tx/slot when maker writes<br />land in different leaves vs. one shared leaf</span>
           </div>
           <p className="max-w-xl flex-1 text-xs leading-relaxed text-faint">
-            Measured on a single-node solana-test-validator, the real Agave banking stage, via
-            <span className="font-medium text-fg"> torna/bench</span>. Devnet is shared and noisy, so the
-            controlled number is the honest one. This parallelizes book{" "}
+            Measured on a single-node solana-test-validator, the real Agave banking stage, via{" "}
+            <a href="https://github.com/nzengi/torna/tree/main/bench" target="_blank" rel="noreferrer"
+               className="font-medium text-fg underline decoration-line underline-offset-2 hover:text-brand">torna/bench</a>
+            {" "}(<span className="nums">./run.sh</span> reproduces it;{" "}
+            <a href="/research#eval" className="text-brand hover:text-brand-hi">method and data</a>). Devnet is
+            shared and noisy, so the controlled number is the honest one. This parallelizes book{" "}
             <span className="font-semibold text-fg">maintenance</span>, not matching: top-of-book is
             price-time serial by definition, and nothing can change that.
           </p>
