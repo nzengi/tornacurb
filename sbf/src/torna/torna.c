@@ -233,22 +233,66 @@ static uint64_t check_node(SolAccountInfo *a, const SolPubkey *prog, const TreeH
     return SUCCESS;
 }
 
-/* CPI system::create_account for `acc`, signed by `seeds`, owned by us. */
+/* A system-program CPI signed by `seeds` (may be NULL for an unsigned one). */
+static uint64_t sys_invoke(SolParameters *p, uint32_t index, const uint8_t *payload, uint64_t len,
+                           SolAccountMeta *metas, int n_metas, const SolSignerSeed *seeds, int n_seeds) {
+    uint8_t d[4 + 48];
+    *(uint32_t *)d = index;
+    sol_memcpy(&d[4], payload, len);
+    SolInstruction ix = { (SolPubkey *)&SYSTEM_PROGRAM_ID, metas, n_metas, d, 4 + len };
+    SolSignerSeeds signers[1] = { { seeds, (uint64_t)n_seeds } };
+    return sol_invoke_signed(&ix, p->ka, p->ka_num, signers, seeds ? 1 : 0);
+}
+
+/* Create `acc` as a program-owned account of `space` bytes holding `lamports`, at the PDA of
+ * `seeds` (the last seed is the bump), signed by those seeds. Every account the program creates
+ * comes through here, so this is where three properties are held:
+ *
+ *  - The address IS that PDA. Signing with the seeds does not prove it: an account that signed the
+ *    outer transaction as a keypair would take the CPI just as well. With `canonical`, the bump must
+ *    also be the canonical one, so a (creator, tree_id) has exactly one header, allocator, and node
+ *    per index -- a second header at another bump would share the first one's tree_uid, and with it
+ *    every node, while carrying its own authority.
+ *  - lamports is non-zero. The runtime makes a new account rent-exempt or rejects the transaction,
+ *    except at exactly 0, where the account is simply dropped when the transaction ends: a node
+ *    created that way is linked into the tree and then gone, bricking every path through it.
+ *  - An address that already holds lamports can still be created. A PDA is known in advance and
+ *    anyone may fund it; CreateAccount refuses such an address, so on that path alone funding the
+ *    next node index would stop the tree from ever splitting again. It gets the equivalent steps
+ *    instead: top up to `lamports`, then Allocate and Assign, signed by the PDA. */
 static uint64_t cpi_create(SolParameters *p, SolAccountInfo *payer, SolAccountInfo *acc,
                            uint64_t lamports, uint64_t space,
-                           const SolSignerSeed *seeds, int n_seeds) {
-    uint8_t d[52];
-    sol_memset(d, 0, 4);
-    *(uint64_t *)&d[4]  = lamports;
-    *(uint64_t *)&d[12] = space;
-    sol_memcpy(&d[20], p->program_id->x, 32);
-    SolAccountMeta metas[2] = {
-        { payer->key, true, true },
-        { acc->key,   true, true },
-    };
-    SolInstruction ix = { (SolPubkey *)&SYSTEM_PROGRAM_ID, metas, 2, d, sizeof(d) };
-    SolSignerSeeds signers[1] = { { seeds, (uint64_t)n_seeds } };
-    return sol_invoke_signed(&ix, p->ka, p->ka_num, signers, 1);
+                           const SolSignerSeed *seeds, int n_seeds, bool canonical) {
+    SolPubkey want;
+    if (canonical) {
+        uint8_t b;
+        if (sol_try_find_program_address(seeds, n_seeds - 1, p->program_id, &want, &b) != SUCCESS) return ERR_BAD_PATH;
+        if (b != *seeds[n_seeds - 1].addr) return ERR_BAD_PATH;
+    } else if (sol_create_program_address(seeds, n_seeds, p->program_id, &want) != SUCCESS) {
+        return ERR_BAD_PATH;
+    }
+    if (!SolPubkey_same(acc->key, &want)) return ERR_BAD_PATH;
+    if (lamports == 0) return ERR_BAD_PARAM;
+
+    if (*acc->lamports == 0) {
+        uint8_t d[48];
+        *(uint64_t *)&d[0] = lamports;
+        *(uint64_t *)&d[8] = space;
+        sol_memcpy(&d[16], p->program_id->x, 32);
+        SolAccountMeta metas[2] = { { payer->key, true, true }, { acc->key, true, true } };
+        return sys_invoke(p, 0, d, sizeof(d), metas, 2, seeds, n_seeds);          /* CreateAccount */
+    }
+    uint64_t e;
+    if (*acc->lamports < lamports) {
+        uint64_t top = lamports - *acc->lamports;
+        SolAccountMeta metas[2] = { { payer->key, true, true }, { acc->key, true, false } };
+        e = sys_invoke(p, 2, (const uint8_t *)&top, 8, metas, 2, NULL, 0);        /* Transfer */
+        if (e) return e;
+    }
+    SolAccountMeta self[1] = { { acc->key, true, true } };
+    e = sys_invoke(p, 8, (const uint8_t *)&space, 8, self, 1, seeds, n_seeds);     /* Allocate */
+    if (e) return e;
+    return sys_invoke(p, 1, p->program_id->x, 32, self, 1, seeds, n_seeds);        /* Assign */
 }
 
 /* Allocate one spare node via CPI and initialize its header. */
@@ -269,7 +313,7 @@ static uint64_t consume_spare(SolParameters *p, int payer_idx, int spare_idx,
         { (const uint8_t *)&new_idx, 8 },
         { (const uint8_t *)&bump, 1 },
     };
-    uint64_t err = cpi_create(p, &p->ka[payer_idx], spare, rent, th->node_size, seeds, 5);
+    uint64_t err = cpi_create(p, &p->ka[payer_idx], spare, rent, th->node_size, seeds, 5, true);
     if (err) return err;
 
     NodeHeader *h = node_hdr(spare->data);
@@ -326,7 +370,7 @@ static uint64_t do_init_tree(SolParameters *p) {
             { (const uint8_t *)"thdr", 4 }, { payer->key->x, 32 },
             { (const uint8_t *)&tree_id, 4 }, { (const uint8_t *)&hdr_bump, 1 },
         };
-        uint64_t e = cpi_create(p, payer, hdr, rent_hdr, TREE_HEADER_SIZE, s, 4);
+        uint64_t e = cpi_create(p, payer, hdr, rent_hdr, TREE_HEADER_SIZE, s, 4, true);
         if (e) return e;
     }
     /* create allocator PDA: ["talloc", creator, tree_id, alloc_bump] */
@@ -335,7 +379,7 @@ static uint64_t do_init_tree(SolParameters *p) {
             { (const uint8_t *)"talloc", 6 }, { payer->key->x, 32 },
             { (const uint8_t *)&tree_id, 4 }, { (const uint8_t *)&alloc_bump, 1 },
         };
-        uint64_t e = cpi_create(p, payer, alloc, rent_alloc, ALLOC_SIZE, s, 4);
+        uint64_t e = cpi_create(p, payer, alloc, rent_alloc, ALLOC_SIZE, s, 4, true);
         if (e) return e;
     }
 
@@ -1087,7 +1131,7 @@ static uint64_t do_add_delegate(SolParameters *p) {
             { (const uint8_t *)"tdlg", 4 }, { th->creator, 32 },
             { (const uint8_t *)&tree_id, 4 }, { (const uint8_t *)&bump, 1 },
         };
-        e = cpi_create(p, payer, del, rent, DELEGATE_ACCT_SIZE, s, 4);
+        e = cpi_create(p, payer, del, rent, DELEGATE_ACCT_SIZE, s, 4, false); /* re-derived from d->bump below */
         if (e) return e;
         DelegateAccount *d = (DelegateAccount *)del->data;
         sol_memset(del->data, 0, DELEGATE_ACCT_SIZE);
@@ -1274,6 +1318,9 @@ extern uint64_t entrypoint(const uint8_t *input) {
     SolAccountInfo accounts[MAX_ACCOUNTS];
     SolParameters params = (SolParameters){ .ka = accounts };
     if (!sol_deserialize(input, &params, MAX_ACCOUNTS)) return ERROR_INVALID_ARGUMENT;
+    /* sol_deserialize fills at most MAX_ACCOUNTS entries but reports the transaction's real count;
+     * every handler indexes ka[] up to ka_num, so beyond the array it would read stack garbage */
+    if (params.ka_num > MAX_ACCOUNTS) return ERROR_INVALID_ARGUMENT;
     if (params.data_len < 1) return ERR_BAD_IX_DATA;
     switch (params.data[0]) {
         case IX_INIT_TREE: return do_init_tree(&params);
