@@ -80,19 +80,19 @@ async function readSide(m: Market, side: Side): Promise<Row[]> {
   }).filter((o) => o.size > 0n);
 }
 
-async function buildPlace(m: Market, maker: Keypair, side: Side, price: bigint, size: bigint) {
+async function buildPlace(m: Market, maker: Keypair, side: Side, price: bigint, size: bigint, slot: bigint) {
   const tree = treeOf(m, side);
   const nonce = BigInt(Date.now()) + BigInt(Math.floor(Math.random() * 1000));
   const args = {
     reader, tree, orderbook: ORDERBOOK, torna: TORNA, marketId: BigInt(m.marketId),
-    side, price, size, nonce, maker: maker.publicKey,
+    side, price, size, nonce, slot, maker: maker.publicKey,
     makerSrc: ata(payMintOf(m, side), maker.publicKey), vault: vaultOf(m, side),
   };
   const h = await tree.header(reader);
   if (!h) return null;
   let cold = h.height === 0;
   if (!cold) {
-    const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, 0n, maker.publicKey, nonce);
+    const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, slot, maker.publicKey, nonce);
     const path = await tree.path(reader, key);
     if (path?.length) {
       const d = await reader.accountData(tree.nodePda(path[path.length - 1])[0]);
@@ -144,6 +144,8 @@ export async function POST(req: Request) {
     const mid = Math.min(anchor * (1 + MAX_DEV), Math.max(anchor * (1 - MAX_DEV), moved));
 
     const { blockhash } = await conn.getLatestBlockhash("confirmed");
+    // places route by a key that carries the slot they land in; plan from the current one
+    const slot = BigInt(await conn.getSlot("confirmed"));
 
     // uncross first: place does not auto-match, so a bid and an ask can rest at the same price and
     // a venue must never show that. Taking the cross is what an arbitrageur would do anyway.
@@ -191,7 +193,7 @@ export async function POST(req: Request) {
         if (price <= 0n) continue;
         const maker = demos[(i + (side === ASK ? 0 : 1)) % demos.length];
         try {
-          const ix = await buildPlace(m, maker, side, price, quoteSize());
+          const ix = await buildPlace(m, maker, side, price, quoteSize(), slot);
           if (ix) sent.push(await fire(ix, [maker], blockhash));
         } catch { skipped.push(`${side === ASK ? "ask" : "bid"}@${price}`); }
       }

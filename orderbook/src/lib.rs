@@ -13,7 +13,7 @@
 use solana_program::{
     account_info::AccountInfo, entrypoint, entrypoint::ProgramResult,
     instruction::{AccountMeta, Instruction}, program::{invoke, invoke_signed, set_return_data},
-    program_error::ProgramError, pubkey::Pubkey,
+    program_error::ProgramError, pubkey::Pubkey, sysvar::{clock::Clock, Sysvar},
 };
 
 const PLACE: u8 = 0;
@@ -262,6 +262,8 @@ fn process(pid: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult
 
 /// PlaceOrder (ask): escrow `size` base into the vault, then insert into the ask book.
 /// data: [0][side][price u64][size u64][slot_est u64][nonce u64][market_id u64][bump u8]
+/// slot_est is the client's routing hint only: the key's slot is the slot the order lands in
+/// (see `landed_slot`). return_data: the order's key (32B), which is what cancel takes.
 /// accounts: [maker(s), market_pda, torna, header, maker_src(w), vault(w),
 ///            token_program, market_cfg, path(leaf w)]
 fn place(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
@@ -270,7 +272,6 @@ fn place(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     let side = data[1];
     let price = rd_u64(data, 2);
     let size = rd_u64(data, 10);
-    let slot_est = rd_u64(data, 18);
     let nonce = rd_u64(data, 26);
     let market_id = rd_u64(data, 34);
     let bump = data[42];
@@ -294,16 +295,25 @@ fn place(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     let escrow = if side == ASK { size } else { price.checked_mul(size).ok_or(ProgramError::ArithmeticOverflow)? };
     token_transfer(&accounts[6], &accounts[4], &accounts[5], maker, escrow, None)?;
 
-    let key = order_key(side, price, slot_est, maker.key, nonce);
+    let key = order_key(side, price, landed_slot()?, maker.key, nonce);
     let value = order_value(maker.key, size);
     let seeds: &[&[u8]] = &[b"book", &market_id.to_le_bytes(), &[bump]];
-    torna_cpi::insert_fast(&accounts[2], &accounts[1], &accounts[3], &accounts[8..], &key, &value, &[seeds])
+    torna_cpi::insert_fast(&accounts[2], &accounts[1], &accounts[3], &accounts[8..], &key, &value, &[seeds])?;
+    set_return_data(&key);
+    Ok(())
 }
+
+/// The slot an order's key carries. It orders orders at one price, so it cannot come from the
+/// maker: a client-chosen 0 would put them ahead of everything already resting at that price.
+/// The client still sends its estimate (slot_est) because it plans the tree path from a key it
+/// computes itself; if the landed slot routes to another leaf, Torna rejects the path and the
+/// place (escrow included) reverts, to be retried.
+fn landed_slot() -> Result<u64, ProgramError> { Ok(Clock::get()?.slot) }
 
 /// PlaceOrderCold: place into a FULL leaf via the cold Insert path (split). Escrow as
 /// in `place`; then a dual-signer cold Insert (maker pays spare rent + signs, the market
 /// PDA authorizes). Client resolves path+spares via torna_sdk::Tree::cold_plan.
-/// data: [3][side][price u64][size u64][slot u64][nonce u64][market_id u64][bump u8]
+/// data: [3][side][price u64][size u64][slot_est u64][nonce u64][market_id u64][bump u8]
 ///        [path_len u8][spare_count u8][rent_node u64][spare_bumps * spare_count]
 /// accounts: [maker(s), market_pda, torna, header(w), maker_src(w), vault(w), token,
 ///            market_cfg, alloc(w), system, path(w)..., spares(w)...]
@@ -313,7 +323,6 @@ fn place_cold(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     let side = data[1];
     let price = rd_u64(data, 2);
     let size = rd_u64(data, 10);
-    let slot_est = rd_u64(data, 18);
     let nonce = rd_u64(data, 26);
     let market_id = rd_u64(data, 34);
     let bump = data[42];
@@ -341,14 +350,16 @@ fn place_cold(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     let escrow = if side == ASK { size } else { price.checked_mul(size).ok_or(ProgramError::ArithmeticOverflow)? };
     token_transfer(&accounts[6], &accounts[4], &accounts[5], maker, escrow, None)?;
 
-    let key = order_key(side, price, slot_est, maker.key, nonce);
+    let key = order_key(side, price, landed_slot()?, maker.key, nonce);
     let value = order_value(maker.key, size);
     let path = &accounts[10..10 + path_len];
     let spares = &accounts[10 + path_len..10 + path_len + spare_count];
     let mid = market_id.to_le_bytes();
     let seeds: &[&[u8]] = &[b"book", &mid, &[bump]];
     torna_cpi::insert_cold(&accounts[2], &accounts[1], &accounts[3], maker, &accounts[8], &accounts[9],
-        path, spares, &key, &value, rent_node, spare_bumps, &[seeds])
+        path, spares, &key, &value, rent_node, spare_bumps, &[seeds])?;
+    set_return_data(&key);
+    Ok(())
 }
 
 /// CancelOrder: refund the escrow, then remove the order.

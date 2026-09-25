@@ -97,16 +97,17 @@ async function readSide(m: Market, side: Side): Promise<Row[]> {
 async function place(m: Market, maker: Keypair, side: Side, price: bigint, size: bigint): Promise<string> {
   const tree = treeOf(m, side);
   const nonce = BigInt(Date.now()) + BigInt(Math.floor(Math.random() * 1000));
+  const slot = BigInt(await conn.getSlot("confirmed")); // routing estimate; the program stamps the landed slot
   const args = {
     reader, tree, orderbook: ORDERBOOK, torna: TORNA, marketId: BigInt(m.marketId),
-    side, price, size, nonce, maker: maker.publicKey,
+    side, price, size, nonce, slot, maker: maker.publicKey,
     makerSrc: ata(payMintOf(m, side), maker.publicKey), vault: vaultOf(m, side),
   };
   const h = await tree.header(reader);
   if (!h) throw new Error(`${m.symbol}: tree not initialized`);
   let cold = h.height === 0;
   if (!cold) {
-    const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, 0n, maker.publicKey, nonce);
+    const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, slot, maker.publicKey, nonce);
     const path = await tree.path(reader, key);
     if (path?.length) {
       const d = await reader.accountData(tree.nodePda(path[path.length - 1])[0]);

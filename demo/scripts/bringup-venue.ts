@@ -276,7 +276,7 @@ async function bringUpMarket(
       : (await retry("maker quote ATA", () => getOrCreateAssociatedTokenAccount(conn, payer, quoteMint, maker.publicKey))).address;
     const { ix } = await placeIx({
       reader, tree, orderbook: ORDERBOOK, torna: TORNA, marketId: BigInt(marketId),
-      side, price, size, nonce: BigInt(mi + 1), maker: maker.publicKey,
+      side, price, size, nonce: BigInt(mi + 1), slot: BigInt(await conn.getSlot("confirmed")), maker: maker.publicKey,
       makerSrc: src, vault: side === ASK ? baseVault : quoteVault,
     });
     await send([ix], [payer, maker], `${L.symbol} seed ${side === ASK ? "ask" : "bid"}@${price}`);

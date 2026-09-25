@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Tree } from "torna-sdk";
-import { ASK, BID, placeIx, cancelIx, bookPda, type Side } from "../src/lib/orderbook";
+import { ASK, BID, placeIx, cancelIx, landedKey, bookPda, type Side } from "../src/lib/orderbook";
 
 const M = JSON.parse(readFileSync(join(import.meta.dirname, "../src/lib/market.json"), "utf8"));
 const conn = new Connection(process.env.RPC ?? M.rpcUrl, "confirmed");
@@ -23,11 +23,13 @@ async function tryPlace(maker: Keypair, side: Side, price: bigint) {
   const tree = side === ASK ? askTree : bidTree;
   const src = side === ASK ? ata(M.baseMint, maker.publicKey) : ata(M.quoteMint, maker.publicKey);
   const vault = new PublicKey(side === ASK ? M.baseVault : M.quoteVault);
-  const { ix, key } = await placeIx({
+  const { ix, key: planned } = await placeIx({
     reader, tree, orderbook, torna, marketId: BigInt(M.marketId),
-    side, price, size: 1n, nonce: BigInt(Date.now()), maker: maker.publicKey, makerSrc: src, vault,
+    side, price, size: 1n, nonce: BigInt(Date.now()), slot: BigInt(await conn.getSlot("confirmed")),
+    maker: maker.publicKey, makerSrc: src, vault,
   });
   const sig = await sendAndConfirmTransaction(conn, new Transaction().add(ix), [maker], { commitment: "confirmed" });
+  const key = await landedKey(conn, sig, planned); // the program stamped the slot it landed in
   return { sig, key, side, price, tree, vault, src };
 }
 
