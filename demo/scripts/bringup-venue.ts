@@ -35,8 +35,8 @@ const BASE_PER_DEMO = 1000;         // shares per demo per market
 const PACE_MS = Number(process.env.PACE_MS ?? 400);
 
 // The already-deployed Torna programs (devnet). Override via env for a private deployment.
-const TORNA = new PublicKey(process.env.TORNA_PROGRAM ?? "C2vPNBochYrcF4yCHDrtn9SPXUobsjrfPnZ2RPHUcAN5");
-const ORDERBOOK = new PublicKey(process.env.ORDERBOOK_PROGRAM ?? "6aUNcngMi59XEF35feSycdBsvXGKkZHTUcCWRcTdQ9C7");
+const TORNA = new PublicKey(process.env.TORNA_PROGRAM ?? "DQW2KqoFvrLaBgkH9ig6TWmY9nWTVSwpyNisXELDxw3A");
+const ORDERBOOK = new PublicKey(process.env.ORDERBOOK_PROGRAM ?? "5FZVhBTp4TMvUz9XmheVuzyXULCeC4g4NMSego8GP2AC");
 
 const conn = new Connection(RPC, "confirmed");
 const here = (p: string) => join(import.meta.dirname, p);
@@ -184,7 +184,7 @@ async function main() {
   const rHdr = BigInt(await rent(146));
   const rAlloc = BigInt(await rent(32));
   const rNode = BigInt(await rent(nodeSize(F, VS)));
-  const rCfg = BigInt(await rent(229));
+  const rCfg = BigInt(await rent(237)); // only read by an orderbook older than min_size; current ones size the config themselves
 
   for (const L of LISTINGS) {
     if (venue.markets[L.symbol]) { console.log(`= ${L.symbol.padEnd(8)} already up, skipping`); continue; }
