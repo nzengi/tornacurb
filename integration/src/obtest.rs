@@ -123,7 +123,7 @@ fn main() {
             AccountMeta::new_readonly(ar, false), AccountMeta::new_readonly(br, false),
         ])).expect("init market");
     }
-    check!(svm.get_account(&cfg).map(|a| a.data.len()) == Some(229), "InitMarket wrote the bound config");
+    check!(svm.get_account(&cfg).map(|a| a.data.len()) == Some(237), "InitMarket wrote the bound config (with min_size)");
 
     // --- makers + taker, funded; track all token accounts for conservation ---
     let makers: Vec<Keypair> = (0..4).map(|_| Keypair::new()).collect();
@@ -137,7 +137,7 @@ fn main() {
         send!([&u], mint_to(&base_mint.pubkey(), &base_of[&kp.pubkey()].pubkey(), 1000)).unwrap();
         send!([&u], mint_to(&quote_mint.pubkey(), &quote_of[&kp.pubkey()].pubkey(), 100_000)).unwrap();
     }
-    let all_base: Vec<Pubkey> = base_of.values().map(|k| k.pubkey()).chain([base_vault]).collect();
+    let mut all_base: Vec<Pubkey> = base_of.values().map(|k| k.pubkey()).chain([base_vault]).collect();
     let all_quote: Vec<Pubkey> = quote_of.values().map(|k| k.pubkey()).chain([quote_vault]).collect();
     let total = |svm: &LiteSVM, accts: &[Pubkey]| -> u64 { accts.iter().map(|a| bal(svm, a)).sum() };
     let init_base = total(&svm, &all_base);
@@ -551,6 +551,132 @@ fn main() {
             "SECURITY: at one price the earlier order fills first (price-time priority holds)");
         invariants!("after the time-priority match");
     }
+
+    // ============ Dust floor, pre-funded config, ask overflow ============
+    let now = 2_000u64; // the clock slot every place below lands in (warped above)
+    // a raw InitMarket for `mid` over the given vaults/trees, optionally with a min_size
+    macro_rules! init_market { ($mid:expr, $bv:expr, $qv:expr, $a:expr, $b:expr, $min:expr) => {{
+        let (bk, _) = Pubkey::find_program_address(&[b"book", &($mid as u64).to_le_bytes()], &ob);
+        let (cf, _) = Pubkey::find_program_address(&[b"mkt", &($mid as u64).to_le_bytes()], &ob);
+        let (ar, br) = { let r = R(&svm); ($a.node_pda($a.header(&r).unwrap().root).0, $b.node_pda($b.header(&r).unwrap().root).0) };
+        let mut d = vec![4u8]; d.extend_from_slice(&($mid as u64).to_le_bytes()); d.push(0); d.push(0);
+        d.extend_from_slice(&0u64.to_le_bytes()); // client rent: ignored now
+        if let Some(min) = $min { d.extend_from_slice(&(min as u64).to_le_bytes()); }
+        send!([&u], Instruction::new_with_bytes(ob, &d, vec![
+            AccountMeta::new(u.pubkey(), true), AccountMeta::new(cf, false), AccountMeta::new_readonly(bk, false),
+            AccountMeta::new_readonly(base_mint.pubkey(), false), AccountMeta::new_readonly(quote_mint.pubkey(), false),
+            AccountMeta::new_readonly($bv, false), AccountMeta::new_readonly($qv, false), AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly($a.header_pda().0, false), AccountMeta::new_readonly($b.header_pda().0, false),
+            AccountMeta::new_readonly(ar, false), AccountMeta::new_readonly(br, false)]))
+    }}; }
+    // an ask on market `mid` (tree `t`, base vault `bv`)
+    macro_rules! ask_on { ($maker:expr, $mid:expr, $t:expr, $bv:expr, $price:expr, $size:expr, $nonce:expr) => {{
+        let (bk, bb) = Pubkey::find_program_address(&[b"book", &($mid as u64).to_le_bytes()], &ob);
+        let (cf, _) = Pubkey::find_program_address(&[b"mkt", &($mid as u64).to_le_bytes()], &ob);
+        let key = keys::order_key(keys::Side::Ask, $price, now, &$maker.pubkey(), $nonce);
+        let path = { let r = R(&svm); $t.path(&r, &key).unwrap() };
+        let mut d = vec![0u8, ASK]; d.extend_from_slice(&($price as u64).to_le_bytes()); d.extend_from_slice(&($size as u64).to_le_bytes());
+        d.extend_from_slice(&now.to_le_bytes()); d.extend_from_slice(&($nonce as u64).to_le_bytes()); d.extend_from_slice(&($mid as u64).to_le_bytes()); d.push(bb);
+        let mut m = vec![AccountMeta::new($maker.pubkey(), true), AccountMeta::new_readonly(bk, false),
+            AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly($t.header_pda().0, false),
+            AccountMeta::new(base_of[&$maker.pubkey()].pubkey(), false), AccountMeta::new($bv, false),
+            AccountMeta::new_readonly(token, false), AccountMeta::new_readonly(cf, false)];
+        for (i, &n) in path.iter().enumerate() { let pk = $t.node_pda(n).0;
+            m.push(if i == path.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); }
+        send!([&$maker], Instruction::new_with_bytes(ob, &d, m))
+    }}; }
+
+    // a market can set a floor on order size, so nobody can wall the best price with 1-atom orders
+    {
+        let mid6 = 6u64;
+        let (book6, _) = Pubkey::find_program_address(&[b"book", &mid6.to_le_bytes()], &ob);
+        let (cfg6, _) = Pubkey::find_program_address(&[b"mkt", &mid6.to_le_bytes()], &ob);
+        let (bv6, qv6) = (mk_vault(&mut svm, &base_mint.pubkey(), &book6), mk_vault(&mut svm, &quote_mint.pubkey(), &book6));
+        all_base.push(bv6); // market 6's escrow is still the makers' base: count it in conservation
+        let (ask6, bid6) = bound_trees(&mut svm, (17, 18), &book6);
+        check!(init_market!(mid6, bv6, qv6, ask6, bid6, Some(10u64)).is_ok(), "InitMarket with min_size 10");
+        check!(svm.get_account(&cfg6).is_some_and(|a| a.data.len() == 237 && a.data[229..237] == 10u64.to_le_bytes()),
+            "the config records min_size");
+        check!(ask_on!(makers[0], mid6, ask6, bv6, 120u64, 9u64, 900u64).is_err(), "SECURITY: an order below the market's min_size is rejected");
+        check!(ask_on!(makers[0], mid6, ask6, bv6, 120u64, 10u64, 901u64).is_ok(), "an order at min_size rests");
+        // a market configured without one keeps accepting any non-zero size
+        check!(place!(makers[0], ASK, 5_000u64, 1u64, 902u64).is_ok(), "a market with no min_size still takes size 1");
+        let _ = bid6;
+    }
+
+    // a config PDA someone funded in advance can still be created (CreateAccount alone would refuse it forever)
+    {
+        let mid7 = 7u64;
+        let (book7, _) = Pubkey::find_program_address(&[b"book", &mid7.to_le_bytes()], &ob);
+        let (cfg7, _) = Pubkey::find_program_address(&[b"mkt", &mid7.to_le_bytes()], &ob);
+        let mut td = vec![2u8, 0, 0, 0]; td.extend_from_slice(&5_000u64.to_le_bytes()); // system Transfer
+        check!(send!([&attacker], Instruction::new_with_bytes(Pubkey::default(), &td, vec![
+            AccountMeta::new(attacker.pubkey(), true), AccountMeta::new(cfg7, false)])).is_ok(), "setup: attacker pre-funds the config PDA");
+        let (bv7, qv7) = (mk_vault(&mut svm, &base_mint.pubkey(), &book7), mk_vault(&mut svm, &quote_mint.pubkey(), &book7));
+        let (ask7, bid7) = bound_trees(&mut svm, (19, 20), &book7);
+        check!(init_market!(mid7, bv7, qv7, ask7, bid7, None::<u64>).is_ok(), "SECURITY: InitMarket succeeds over a pre-funded config PDA");
+        check!(svm.get_account(&cfg7).is_some_and(|a| a.owner == ob && a.data.len() == 237
+            && a.lamports >= svm.minimum_balance_for_rent_exemption(237)), "the pre-funded config is program-owned, full-size and rent-exempt");
+    }
+
+    // an ask whose price*size cannot be represented is refused at place (no match could ever settle it)
+    check!(place!(makers[0], ASK, u64::MAX / 2, 3u64, 903u64).is_err(), "SECURITY: an ask with an unrepresentable price*size is rejected");
+    invariants!("after dust/pre-fund/overflow checks");
+
+    // ============ Negative paths: cancel and match ownership, sweep order ============
+    let cancel_ix = |signer: &Pubkey, key: [u8; 32], dst: Pubkey, path: &[u64]| -> Instruction {
+        let mut d = vec![1u8]; d.extend_from_slice(&key); d.push(ASK); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump);
+        let mut meta = vec![AccountMeta::new(*signer, true), AccountMeta::new_readonly(book, false),
+            AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
+            AccountMeta::new(base_vault, false), AccountMeta::new(dst, false),
+            AccountMeta::new_readonly(token, false), AccountMeta::new_readonly(cfg, false)];
+        for (i, &n) in path.iter().enumerate() { let pk = ask.node_pda(n).0;
+            meta.push(if i == path.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); }
+        Instruction::new_with_bytes(ob, &d, meta)
+    };
+    {
+        let (owner, other) = (&makers[0], &makers[3]);
+        place!(owner, ASK, 400u64, 2u64, 904u64).unwrap();
+        let key = keys::order_key(keys::Side::Ask, 400, now, &owner.pubkey(), 904);
+        let path = { let r = R(&svm); ask.path(&r, &key).unwrap() };
+        let r = send!([other], cancel_ix(&other.pubkey(), key, base_of[&other.pubkey()].pubkey(), &path));
+        check!(r.as_ref().is_err_and(|e| e.contains("IllegalOwner")), format!("SECURITY: a non-owner cannot cancel someone else's order, got {r:?}"));
+        let r = send!([owner], cancel_ix(&owner.pubkey(), key, base_of[&other.pubkey()].pubkey(), &path));
+        check!(r.as_ref().is_err_and(|e| e.contains("IllegalOwner")), format!("SECURITY: a cancel cannot refund into an account the maker does not own, got {r:?}"));
+        check!(send!([owner], cancel_ix(&owner.pubkey(), key, base_of[&owner.pubkey()].pubkey(), &path)).is_ok(), "the owner cancels to their own account");
+    }
+    invariants!("after cancel ownership checks");
+    {
+        // match [ask book] with max_fills 8; `recv` is used for every maker_recv slot, `groups` are leaf paths
+        let match_ix = |limit: u64, size: u64, recv: Pubkey, groups: &[Vec<u64>]| -> Instruction {
+            let mut d = vec![2u8, ASK]; d.extend_from_slice(&limit.to_le_bytes()); d.extend_from_slice(&size.to_le_bytes());
+            d.push(8); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump); d.push(groups.len() as u8); d.push(groups[0].len() as u8);
+            let mut meta = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
+                AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
+                AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
+                AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
+                AccountMeta::new_readonly(cfg, false)];
+            for _ in 0..8 { meta.push(AccountMeta::new(recv, false)); }
+            for g in groups { for (i, &n) in g.iter().enumerate() { let pk = ask.node_pda(n).0;
+                meta.push(if i == g.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); } }
+            Instruction::new_with_bytes(ob, &d, meta)
+        };
+        let (h, best) = { let r = R(&svm); (ask.header(&r).unwrap(),
+            ask.scan(&r, 10_000).into_iter().find(|(_, v)| v[32..40] != [0u8; 8]).unwrap()) };
+        let best_price = keys::price_of(keys::Side::Ask, &best.0);
+        let (left, right) = { let r = R(&svm);
+            (ask.path(&r, &best.0).unwrap(), ask.path(&r, &keys::order_key(keys::Side::Ask, 1_000_000, 0, &u.pubkey(), 0)).unwrap()) };
+        check!(h.leftmost != h.rightmost && *left.last().unwrap() == h.leftmost && *right.last().unwrap() == h.rightmost,
+            "setup: the ask book spans two leaves and its best order is in the leftmost");
+
+        let r = send!([&taker], match_ix(best_price, 1, quote_of[&taker.pubkey()].pubkey(), &[left.clone()]));
+        check!(r.as_ref().is_err_and(|e| e.contains("IllegalOwner")), format!("SECURITY: a match cannot pay the maker's proceeds to someone else, got {r:?}"));
+        let r = send!([&taker], match_ix(u64::MAX / 4, 1, quote_of[&taker.pubkey()].pubkey(), &[right.clone()]));
+        check!(r.as_ref().is_err_and(|e| e.contains("InvalidArgument")), format!("SECURITY: a sweep cannot start past the leftmost leaf, got {r:?}"));
+        let r = send!([&taker], match_ix(999_999, 1_000_000, quote_of[&taker.pubkey()].pubkey(), &[left.clone(), left.clone()]));
+        check!(r.as_ref().is_err_and(|e| e.contains("InvalidArgument")), format!("SECURITY: a sweep cannot replay a leaf in place of its successor, got {r:?}"));
+    }
+    invariants!("after match ownership/order checks (state unchanged)");
 
     println!("\nobtest (orderbook: conservation + security): pass={pass} fail={fail} -> {}",
              if fail == 0 { "ALL PASS" } else { "FAILURES" });

@@ -13,7 +13,7 @@
 use solana_program::{
     account_info::AccountInfo, entrypoint, entrypoint::ProgramResult,
     instruction::{AccountMeta, Instruction}, program::{invoke, invoke_signed, set_return_data},
-    program_error::ProgramError, pubkey::Pubkey, sysvar::{clock::Clock, Sysvar},
+    program_error::ProgramError, pubkey::Pubkey, sysvar::{clock::Clock, rent::Rent, Sysvar},
 };
 
 const PLACE: u8 = 0;
@@ -46,6 +46,8 @@ const H_TREE_UID: usize = 122;        // torna header: tree_uid[16]
 const N_TREE_UID: usize = 28;         // node header: tree_uid[16]
 const MARKET_SIZE: usize = 229; // magic(4)+cfg_bump(1)+7*32 (base/quote mint, base/quote
                                 // vault, torna_program, ask_header, bid_header)
+const MARKET_SIZE_V2: usize = MARKET_SIZE + 8; // + min_size u64. A config written before this
+                                // field existed is 229 bytes and reads as min_size 1.
 
 // torna node/header layout (mirrors abi.md)
 const NODE_HDR: usize = 44;
@@ -84,6 +86,10 @@ fn price_of(book_side: u8, key: &[u8; 32]) -> u64 {
 struct Cfg {
     base_mint: [u8; 32], quote_mint: [u8; 32], base_vault: [u8; 32], quote_vault: [u8; 32],
     torna_program: [u8; 32], ask_header: [u8; 32], bid_header: [u8; 32],
+    /// smallest order a maker may rest, in base atoms. Every resting order takes one of a match's
+    /// MAXK fill slots, so without a floor a wall of 1-atom orders at the best price makes the
+    /// book cost a transaction per MAXK atoms to take.
+    min_size: u64,
 }
 
 fn ta_field(a: &AccountInfo, off: usize) -> Result<[u8; 32], ProgramError> {
@@ -114,6 +120,7 @@ fn read_cfg(cfg: &AccountInfo, program_id: &Pubkey, market_id: u64) -> Result<Cf
         torna_program: d[133..165].try_into().unwrap(),
         ask_header: d[165..197].try_into().unwrap(),
         bid_header: d[197..229].try_into().unwrap(),
+        min_size: if d.len() >= MARKET_SIZE_V2 { rd_u64(&d, MARKET_SIZE).max(1) } else { 1 },
     })
 }
 
@@ -128,14 +135,17 @@ fn check_book(cfg: &Cfg, torna: &AccountInfo, header: &AccountInfo, ask_side: bo
 
 /// InitMarket: create + write the market config PDA after validating the vaults are the
 /// book PDA's token accounts of the declared mints. One-time per market.
-/// data: [4][market_id u64][book_bump u8][cfg_bump u8][rent u64]
+/// data: [4][market_id u64][book_bump u8][cfg_bump u8][rent u64][min_size u64 (optional, default 1)]
+/// `rent` is ignored: the config's size is the program's business, so it computes its own.
 /// accounts: [payer(s,w), market_cfg(w), book_pda, base_mint, quote_mint, base_vault,
 ///            quote_vault, system, torna_program, ask_header, bid_header]
 fn init_market(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     if data.len() < 19 { return Err(ProgramError::InvalidInstructionData); }
     if accounts.len() < 13 { return Err(ProgramError::NotEnoughAccountKeys); }
     let market_id = rd_u64(data, 1);
-    let rent = rd_u64(data, 11); // data[9]/[10] (client bumps) are ignored -- we canonicalize
+    // data[9]/[10] (client bumps) and data[11..19] (client rent) are ignored -- we canonicalize
+    let min_size = if data.len() >= 27 { rd_u64(data, 19) } else { 1 };
+    if min_size == 0 { return Err(ProgramError::InvalidArgument); }
     let (payer, cfg, book) = (&accounts[0], &accounts[1], &accounts[2]);
     let (base_mint, quote_mint, base_vault, quote_vault) =
         (&accounts[3], &accounts[4], &accounts[5], &accounts[6]);
@@ -204,17 +214,7 @@ fn init_market(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pr
     }
 
     // create the config PDA (program-owned), signed by its seeds
-    let mut cd = vec![0u8; 4];
-    cd.extend_from_slice(&rent.to_le_bytes());
-    cd.extend_from_slice(&(MARKET_SIZE as u64).to_le_bytes());
-    cd.extend_from_slice(program_id.as_ref());
-    let create = Instruction {
-        program_id: Pubkey::default(), // system program
-        accounts: vec![AccountMeta::new(*payer.key, true), AccountMeta::new(*cfg.key, true)],
-        data: cd,
-    };
-    invoke_signed(&create, &[payer.clone(), cfg.clone(), accounts[7].clone()],
-        &[&[b"mkt", &mid, &[cfg_bump]]])?;
+    create_pda(payer, cfg, &accounts[7], MARKET_SIZE_V2, program_id, &[b"mkt", &mid, &[cfg_bump]])?;
 
     let mut d = cfg.try_borrow_mut_data()?;
     d[0..4].copy_from_slice(&MARKET_MAGIC.to_le_bytes());
@@ -226,7 +226,42 @@ fn init_market(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pr
     d[133..165].copy_from_slice(torna.key.as_ref());
     d[165..197].copy_from_slice(ask_header.key.as_ref());
     d[197..229].copy_from_slice(bid_header.key.as_ref());
+    d[MARKET_SIZE..MARKET_SIZE_V2].copy_from_slice(&min_size.to_le_bytes());
     Ok(())
+}
+
+/// System-program instruction with the given index and payload.
+fn sys_ix(index: u32, payload: &[u8], metas: Vec<AccountMeta>) -> Instruction {
+    let mut data = index.to_le_bytes().to_vec();
+    data.extend_from_slice(payload);
+    Instruction { program_id: Pubkey::default(), accounts: metas, data }
+}
+
+/// Create a program-owned PDA of `size` bytes, rent-exempt, signed by `seeds`.
+/// A PDA's address is known before it exists, and anyone may send lamports to it. CreateAccount
+/// refuses an address that already holds lamports, so on that path alone a 1-lamport transfer
+/// would block the address for good. An address that is already funded gets the equivalent steps
+/// instead: top up to rent-exempt, then Allocate and Assign, both signed by the PDA.
+fn create_pda<'a>(payer: &AccountInfo<'a>, acct: &AccountInfo<'a>, system: &AccountInfo<'a>,
+                  size: usize, owner: &Pubkey, seeds: &[&[u8]]) -> ProgramResult {
+    if *system.key != Pubkey::default() { return Err(ProgramError::IncorrectProgramId); }
+    let need = Rent::get()?.minimum_balance(size);
+    let have = acct.lamports();
+    if have == 0 {
+        let mut p = need.to_le_bytes().to_vec();
+        p.extend_from_slice(&(size as u64).to_le_bytes());
+        p.extend_from_slice(owner.as_ref());
+        let ix = sys_ix(0, &p, vec![AccountMeta::new(*payer.key, true), AccountMeta::new(*acct.key, true)]);
+        return invoke_signed(&ix, &[payer.clone(), acct.clone(), system.clone()], &[seeds]);
+    }
+    if have < need {
+        let ix = sys_ix(2, &(need - have).to_le_bytes(), vec![AccountMeta::new(*payer.key, true), AccountMeta::new(*acct.key, false)]);
+        invoke(&ix, &[payer.clone(), acct.clone(), system.clone()])?;
+    }
+    let alloc = sys_ix(8, &(size as u64).to_le_bytes(), vec![AccountMeta::new(*acct.key, true)]);
+    invoke_signed(&alloc, &[acct.clone(), system.clone()], &[seeds])?;
+    let assign = sys_ix(1, owner.as_ref(), vec![AccountMeta::new(*acct.key, true)]);
+    invoke_signed(&assign, &[acct.clone(), system.clone()], &[seeds])
 }
 
 /// SPL-Token Transfer CPI. `seeds` = Some(market PDA seeds) when the vault (PDA-owned)
@@ -291,8 +326,11 @@ fn place(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     if ta_field(&accounts[4], TA_MINT)? != want_mint { return Err(ProgramError::InvalidArgument); }
 
     // escrow into the vault (maker authorizes). ASK locks `size` base; BID `price*size` quote.
-    if size == 0 || price == 0 { return Err(ProgramError::InvalidArgument); } // no zero/0-price orders (matcher DoS)
-    let escrow = if side == ASK { size } else { price.checked_mul(size).ok_or(ProgramError::ArithmeticOverflow)? };
+    if size < cfg.min_size || price == 0 { return Err(ProgramError::InvalidArgument); } // no dust/0-price orders (matcher DoS)
+    // price*size is what a taker pays for an ask and what a bid escrows: refuse it here if it cannot
+    // be represented, rather than rest an ask that no match can ever settle in full
+    let notional = price.checked_mul(size).ok_or(ProgramError::ArithmeticOverflow)?;
+    let escrow = if side == ASK { size } else { notional };
     token_transfer(&accounts[6], &accounts[4], &accounts[5], maker, escrow, None)?;
 
     let key = order_key(side, price, landed_slot()?, maker.key, nonce);
@@ -346,8 +384,11 @@ fn place_cold(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     if ta_field(&accounts[5], TA_OWNER)? != accounts[1].key.to_bytes() { return Err(ProgramError::IllegalOwner); }
     if ta_field(&accounts[4], TA_MINT)? != want_mint { return Err(ProgramError::InvalidArgument); }
 
-    if size == 0 || price == 0 { return Err(ProgramError::InvalidArgument); } // no zero/0-price orders (matcher DoS)
-    let escrow = if side == ASK { size } else { price.checked_mul(size).ok_or(ProgramError::ArithmeticOverflow)? };
+    if size < cfg.min_size || price == 0 { return Err(ProgramError::InvalidArgument); } // no dust/0-price orders (matcher DoS)
+    // price*size is what a taker pays for an ask and what a bid escrows: refuse it here if it cannot
+    // be represented, rather than rest an ask that no match can ever settle in full
+    let notional = price.checked_mul(size).ok_or(ProgramError::ArithmeticOverflow)?;
+    let escrow = if side == ASK { size } else { notional };
     token_transfer(&accounts[6], &accounts[4], &accounts[5], maker, escrow, None)?;
 
     let key = order_key(side, price, landed_slot()?, maker.key, nonce);
