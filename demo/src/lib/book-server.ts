@@ -18,6 +18,11 @@ const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const TTL_MS = 10_000;
 
 const conn = new Connection(RPC, "confirmed");
+// A second endpoint for when the first is rate-limiting. The dedicated RPC's per-second budget is
+// shared with everything else server-side, so a busy moment elsewhere used to surface here as an
+// empty "loading" book. Public devnet is slower but separately budgeted: better than no book.
+const PUBLIC = "https://api.devnet.solana.com";
+const fallbackConn = RPC !== PUBLIC ? new Connection(PUBLIC, "confirmed") : null;
 
 // The RPC's free tier limits requests per second, and reading two trees is a burst of account
 // fetches. A cold instance with nothing cached used to pass that straight through, which surfaced in
@@ -37,9 +42,10 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
     }
   }
 }
-const reader: AccountReader = {
-  async accountData(k) { const a = await conn.getAccountInfo(k, "confirmed"); return a ? Uint8Array.from(a.data) : null; },
-};
+const readerOf = (c: Connection): AccountReader => ({
+  async accountData(k) { const a = await c.getAccountInfo(k, "confirmed"); return a ? Uint8Array.from(a.data) : null; },
+});
+const readers = [readerOf(conn), ...(fallbackConn ? [readerOf(fallbackConn)] : [])];
 
 export interface OrderJSON { price: string; size: string; maker: string; keyHex: string }
 function decode(side: typeof keys.Side.Ask | typeof keys.Side.Bid, e: { key: Uint8Array; value: Uint8Array }): OrderJSON {
@@ -52,8 +58,14 @@ function decode(side: typeof keys.Side.Ask | typeof keys.Side.Bid, e: { key: Uin
   };
 }
 async function scanSide(tree: Tree, side: typeof keys.Side.Ask | typeof keys.Side.Bid): Promise<OrderJSON[]> {
-  const rows = await tree.scan(reader, 64);
-  return rows.map((e) => decode(side, e)).filter((o) => o.size !== "0");
+  let last: unknown;
+  for (const r of readers) {
+    try {
+      const rows = await withRetry(() => tree.scan(r, 64));
+      return rows.map((e) => decode(side, e)).filter((o) => o.size !== "0");
+    } catch (e) { last = e; }
+  }
+  throw last;
 }
 
 export type Snap = { asks: OrderJSON[]; bids: OrderJSON[] };
@@ -77,8 +89,8 @@ export async function readBook(symbol: string): Promise<BookRead> {
     const torna = new PublicKey(venue.tornaProgramId);
     const creator = new PublicKey(venue.creator);
     // sequential, not parallel: two concurrent tree walks are what trips the per-second limit
-    const asks = await withRetry(() => scanSide(new Tree(torna, creator, state.askTreeId), keys.Side.Ask));
-    const bids = await withRetry(() => scanSide(new Tree(torna, creator, state.bidTreeId), keys.Side.Bid));
+    const asks = await scanSide(new Tree(torna, creator, state.askTreeId), keys.Side.Ask);
+    const bids = await scanSide(new Tree(torna, creator, state.bidTreeId), keys.Side.Bid);
     const data: Snap = { asks, bids };
     cache.set(listing.symbol, { at: Date.now(), data });
     return { kind: "ok", data, fresh: true };
