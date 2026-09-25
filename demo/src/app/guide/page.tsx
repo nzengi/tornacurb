@@ -93,7 +93,7 @@ export default function GuidePage() {
           <Step n={3}>
             Press <strong className="text-fg">Get demo tokens</strong>. The faucet sends{" "}
             <K>1,000,000</K> mock USDC — the quote currency, shared across every listing — and{" "}
-            <K>0.002</K> SOL, enough for several hundred devnet fees.
+            <K>0.012</K> SOL — enough for fees and to open the share accounts your first few buys need.
           </Step>
         </ol>
         <P>
