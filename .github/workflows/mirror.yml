@@ -1,0 +1,40 @@
+# Keeps nzengi/tornacurb -- the repository the submission points judges at -- identical to this one.
+#
+# Every push to main here is pushed on to nzengi/tornacurb's main. It is a plain push, not a force:
+# the two share history, so it fast-forwards; if someone commits straight to nzengi/tornacurb the
+# push fails loudly instead of overwriting their work, and the two need reconciling by hand.
+#
+# Needs secrets.MIRROR_TOKEN: a fine-grained token created by the nzengi account for nzengi/tornacurb
+# only, with Contents and Workflows read/write. Without it the job skips.
+name: mirror to nzengi/tornacurb
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    # the file is mirrored too; never run it from the copy, where it would push to itself
+    if: github.repository == 'sirius-labs-dev/tornacurb'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false   # else this repo's token would be sent to the other repo
+      - name: Push main to nzengi/tornacurb
+        env:
+          TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "MIRROR_TOKEN not set; skipping the mirror"; exit 0; fi
+          git push "https://x-access-token:${TOKEN}@github.com/nzengi/tornacurb.git" HEAD:refs/heads/main
+          echo "nzengi/tornacurb main -> $(git rev-parse --short HEAD)"
