@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const TTL_MS = 12_000;
-const conn = new Connection(RPC, "confirmed");
+const conn = new Connection(RPC, { commitment: "confirmed", disableRetryOnRateLimit: true });
 
 // Same reasoning as the book route: the free RPC tier limits requests per second and a cold
 // instance has nothing cached, so a transient 429 must be retried rather than shown.

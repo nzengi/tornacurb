@@ -178,7 +178,8 @@ export async function POST(req: Request) {
   let lastErr: unknown;
   for (const url of primary === PUBLIC ? [PUBLIC] : [primary, PUBLIC]) {
     try {
-      return await fund(new Connection(url, "confirmed"));
+      // no internal 429 retry: withRetry backs off briefly, then the next endpoint takes over
+      return await fund(new Connection(url, { commitment: "confirmed", disableRetryOnRateLimit: true }));
     } catch (e) {
       lastErr = e;
       console.error(`faucet attempt failed (${url === PUBLIC ? "public devnet" : "RPC_URL"}):`, e);

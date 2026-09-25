@@ -17,12 +17,18 @@ import { bySymbol } from "@/lib/listings";
 const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const TTL_MS = 10_000;
 
-const conn = new Connection(RPC, "confirmed");
+// disableRetryOnRateLimit: web3.js otherwise retries a 429 internally with backoff growing to 8s,
+// per account read; across a tree walk those waits multiplied into book requests that hung for
+// minutes. A 429 now surfaces at once to withRetry and the public-devnet fallback below.
+const conn = new Connection(RPC, { commitment: "confirmed", disableRetryOnRateLimit: true });
 // A second endpoint for when the first is rate-limiting. The dedicated RPC's per-second budget is
 // shared with everything else server-side, so a busy moment elsewhere used to surface here as an
 // empty "loading" book. Public devnet is slower but separately budgeted: better than no book.
 const PUBLIC = "https://api.devnet.solana.com";
-const fallbackConn = RPC !== PUBLIC ? new Connection(PUBLIC, "confirmed") : null;
+const fallbackConn = RPC !== PUBLIC ? new Connection(PUBLIC, { commitment: "confirmed", disableRetryOnRateLimit: true }) : null;
+// How long a fresh read may take before the last snapshot (or "retrying") is served instead: a
+// visitor gets a slightly stale book in seconds rather than a spinner for a minute.
+const READ_DEADLINE_MS = 9_000;
 
 // The RPC's free tier limits requests per second, and reading two trees is a burst of account
 // fetches. A cold instance with nothing cached used to pass that straight through, which surfaced in
@@ -89,9 +95,14 @@ export async function readBook(symbol: string): Promise<BookRead> {
     const torna = new PublicKey(venue.tornaProgramId);
     const creator = new PublicKey(venue.creator);
     // sequential, not parallel: two concurrent tree walks are what trips the per-second limit
-    const asks = await scanSide(new Tree(torna, creator, state.askTreeId), keys.Side.Ask);
-    const bids = await scanSide(new Tree(torna, creator, state.bidTreeId), keys.Side.Bid);
-    const data: Snap = { asks, bids };
+    const read = (async (): Promise<Snap> => ({
+      asks: await scanSide(new Tree(torna, creator, state.askTreeId), keys.Side.Ask),
+      bids: await scanSide(new Tree(torna, creator, state.bidTreeId), keys.Side.Bid),
+    }))();
+    const data = await Promise.race([read, new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("book read deadline")), READ_DEADLINE_MS))]);
+    // a read that loses the race still finishes; let it refresh the cache for the next request
+    void read.then((d) => cache.set(listing.symbol, { at: Date.now(), data: d })).catch(() => {});
     cache.set(listing.symbol, { at: Date.now(), data });
     return { kind: "ok", data, fresh: true };
   } catch (e) {
