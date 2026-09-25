@@ -203,18 +203,33 @@ static uint64_t check_header(SolAccountInfo *a, const SolPubkey *prog, bool need
     return SUCCESS;
 }
 
-/* Validate a node account: program-owned, big enough, initialized, identity and
+/* The header bytes only a genuine node can have. consume_spare is the one writer of a node
+ * header and it sets initialized = 1 and is_leaf to 0 or 1. Every other account the program
+ * owns opens with a 4-byte magic (header, allocator, delegate, RangeScan scratch) whose second
+ * byte -- initialized's position -- is not 1, and an account someone else created for the
+ * program is zero-filled. Testing these for exact values rather than non-zero is what keeps a
+ * non-node out: a RangeScan scratch holds caller-chosen bytes exactly where node_idx and
+ * tree_uid live, so the identity checks alone cannot. key_count <= F+1 (the arrays' capacity)
+ * bounds every read a caller then makes into the key, value and child arrays. */
+static uint64_t check_node_hdr(const NodeHeader *h, int F) {
+    if (h->initialized != 1) return ERR_NODE_UNINIT;
+    if (h->is_leaf > 1 || h->key_count > F + 1) return ERR_BAD_NODE;
+    return SUCCESS;
+}
+
+/* Validate a node account: program-owned, big enough, a genuine node header, identity and
  * TENANT binding match. need_w toggles the writable requirement. tree_uid binds
  * the node to its (creator,tree_id) -- tree_id alone collides across creators. */
-static uint64_t check_node(SolAccountInfo *a, const SolPubkey *prog, uint32_t node_size,
-                           uint64_t expect_idx, const uint8_t *tree_uid, bool need_w) {
-    if (a->data_len < node_size) return ERR_NODE_TOO_SMALL;
+static uint64_t check_node(SolAccountInfo *a, const SolPubkey *prog, const TreeHeader *th,
+                           uint64_t expect_idx, bool need_w) {
+    if (a->data_len < th->node_size) return ERR_NODE_TOO_SMALL;
     if (need_w && !a->is_writable) return ERR_NOT_WRITABLE;
     if (!SolPubkey_same(a->owner, prog)) return ERROR_INCORRECT_PROGRAM_ID;
     NodeHeader *h = node_hdr(a->data);
-    if (!h->initialized) return ERR_NODE_UNINIT;
+    uint64_t e = check_node_hdr(h, th->fanout);
+    if (e) return e;
     if (h->node_idx != expect_idx) return ERR_BAD_PATH;
-    if (sol_memcmp(h->tree_uid, tree_uid, 16) != 0) return ERR_BAD_PATH;   /* anti cross-tenant splice */
+    if (sol_memcmp(h->tree_uid, th->tree_uid, 16) != 0) return ERR_BAD_PATH;   /* anti cross-tenant splice */
     return SUCCESS;
 }
 
@@ -414,7 +429,7 @@ static uint64_t do_insert(SolParameters *p) {
 
     /* descend, validating every node (identity + tree binding) */
     SolAccountInfo *root = &p->ka[path_base];
-    e = check_node(root, p->program_id, node_size, th->root_node_idx, th->tree_uid, true);
+    e = check_node(root, p->program_id, th, th->root_node_idx, true);
     if (e) return e;
     for (int lvl = 0; lvl < path_len - 1; lvl++) {
         SolAccountInfo *cur = &p->ka[path_base + lvl];
@@ -424,7 +439,7 @@ static uint64_t do_insert(SolParameters *p) {
         uint64_t *kids = node_kids(cur->data, F);
         uint64_t desc = (pos < ch->key_count && key_cmp(key_ptr(cur->data, pos), key) == 0)
                         ? kids[pos + 1] : kids[pos];
-        e = check_node(&p->ka[path_base + lvl + 1], p->program_id, node_size, desc, th->tree_uid, true);
+        e = check_node(&p->ka[path_base + lvl + 1], p->program_id, th, desc, true);
         if (e) return e;
     }
     SolAccountInfo *leaf_acc = &p->ka[path_base + path_len - 1];
@@ -532,7 +547,7 @@ static uint64_t do_delete(SolParameters *p) {
     SolAccountInfo *payer = &p->ka[1];
 
     /* validate descent path */
-    e = check_node(&p->ka[pb], p->program_id, ns, th->root_node_idx, th->tree_uid, true);
+    e = check_node(&p->ka[pb], p->program_id, th, th->root_node_idx, true);
     if (e) return e;
     for (int lvl = 0; lvl < path_len - 1; lvl++) {
         SolAccountInfo *cur = &p->ka[pb + lvl];
@@ -542,7 +557,7 @@ static uint64_t do_delete(SolParameters *p) {
         uint64_t *kids = node_kids(cur->data, F);
         uint64_t desc = (pos < ch->key_count && key_cmp(key_ptr(cur->data, pos), key) == 0)
                         ? kids[pos + 1] : kids[pos];
-        e = check_node(&p->ka[pb + lvl + 1], p->program_id, ns, desc, th->tree_uid, true);
+        e = check_node(&p->ka[pb + lvl + 1], p->program_id, th, desc, true);
         if (e) return e;
     }
     SolAccountInfo *leaf = &p->ka[pb + path_len - 1];
@@ -571,7 +586,7 @@ static uint64_t do_delete(SolParameters *p) {
         int sib_pos = (sides[lvl] == 1) ? our_pos + 1 : our_pos - 1;
         if (sib_pos < 0 || sib_pos > ph->key_count) return ERR_BAD_PATH;
         SolAccountInfo *sib = &p->ka[sb + sib_off[lvl]];
-        e = check_node(sib, p->program_id, ns, pk[sib_pos], th->tree_uid, true);
+        e = check_node(sib, p->program_id, th, pk[sib_pos], true);
         if (e) return e;
         bool node_leaf = node_hdr(node->data)->is_leaf;
 
@@ -656,13 +671,13 @@ static uint64_t do_compact_leaf(SolParameters *p) {
     if (p->ka_num < (uint64_t)2 + path_len) return ERROR_NOT_ENOUGH_ACCOUNT_KEYS;
 
     /* validate the leftmost descent: each internal step takes kids[0] */
-    e = check_node(&p->ka[2], p->program_id, ns, th->root_node_idx, th->tree_uid, true);
+    e = check_node(&p->ka[2], p->program_id, th, th->root_node_idx, true);
     if (e) return e;
     for (int lvl = 0; lvl < path_len - 1; lvl++) {
         SolAccountInfo *cur = &p->ka[2 + lvl];
         if (node_hdr(cur->data)->is_leaf) return ERR_BAD_PATH;
         uint64_t desc = node_kids(cur->data, F)[0]; /* leftmost child */
-        e = check_node(&p->ka[2 + lvl + 1], p->program_id, ns, desc, th->tree_uid, true);
+        e = check_node(&p->ka[2 + lvl + 1], p->program_id, th, desc, true);
         if (e) return e;
     }
     SolAccountInfo *leaf = &p->ka[2 + path_len - 1];
@@ -703,7 +718,7 @@ static uint64_t do_find(SolParameters *p) {
     if (p->ka_num < (uint64_t)1 + path_len) return ERROR_NOT_ENOUGH_ACCOUNT_KEYS;
 
     SolAccountInfo *root = &p->ka[1];
-    e = check_node(root, p->program_id, node_size, th->root_node_idx, th->tree_uid, false);
+    e = check_node(root, p->program_id, th, th->root_node_idx, false);
     if (e) return e;
     for (int lvl = 0; lvl < path_len - 1; lvl++) {
         SolAccountInfo *cur = &p->ka[1 + lvl];
@@ -713,7 +728,7 @@ static uint64_t do_find(SolParameters *p) {
         uint64_t *kids = node_kids(cur->data, F);
         uint64_t desc = (pos < ch->key_count && key_cmp(key_ptr(cur->data, pos), key) == 0)
                         ? kids[pos + 1] : kids[pos];
-        e = check_node(&p->ka[1 + lvl + 1], p->program_id, node_size, desc, th->tree_uid, false);
+        e = check_node(&p->ka[1 + lvl + 1], p->program_id, th, desc, false);
         if (e) return e;
     }
     SolAccountInfo *leaf = &p->ka[1 + path_len - 1];
@@ -742,7 +757,7 @@ static uint64_t descend_ro(SolParameters *p, TreeHeader *th, uint32_t base,
                            uint8_t path_len, const uint8_t *key, SolAccountInfo **out_leaf) {
     int F = th->fanout;
     uint32_t ns = th->node_size;
-    uint64_t e = check_node(&p->ka[base], p->program_id, ns, th->root_node_idx, th->tree_uid, false);
+    uint64_t e = check_node(&p->ka[base], p->program_id, th, th->root_node_idx, false);
     if (e) return e;
     for (int lvl = 0; lvl < path_len - 1; lvl++) {
         SolAccountInfo *cur = &p->ka[base + lvl];
@@ -752,7 +767,7 @@ static uint64_t descend_ro(SolParameters *p, TreeHeader *th, uint32_t base,
         uint64_t *kids = node_kids(cur->data, F);
         uint64_t desc = (pos < ch->key_count && key_cmp(key_ptr(cur->data, pos), key) == 0)
                         ? kids[pos + 1] : kids[pos];
-        e = check_node(&p->ka[base + lvl + 1], p->program_id, ns, desc, th->tree_uid, false);
+        e = check_node(&p->ka[base + lvl + 1], p->program_id, th, desc, false);
         if (e) return e;
     }
     SolAccountInfo *leaf = &p->ka[base + path_len - 1];
@@ -966,7 +981,7 @@ static uint64_t do_range_scan(SolParameters *p) {
             uint64_t next = node_hdr(cur->data)->next_leaf_idx;
             if (next == 0 || extra_pos >= p->ka_num) break;
             SolAccountInfo *nxt = &p->ka[extra_pos++];
-            e = check_node(nxt, p->program_id, ns, next, th->tree_uid, false);
+            e = check_node(nxt, p->program_id, th, next, false);
             if (e) return e;
             if (!node_hdr(nxt->data)->is_leaf) return ERR_BAD_PATH;
             cur = nxt; idx = 0;
@@ -990,7 +1005,9 @@ static uint64_t do_range_scan(SolParameters *p) {
             if (!SolPubkey_same(prev->owner, p->program_id)) return ERROR_INCORRECT_PROGRAM_ID;
             if (prev->data_len < ns) return ERR_NODE_TOO_SMALL;
             NodeHeader *prh = node_hdr(prev->data);
-            if (!prh->initialized || !prh->is_leaf) return ERR_BAD_PATH;
+            e = check_node_hdr(prh, F);
+            if (e) return e;
+            if (!prh->is_leaf) return ERR_BAD_PATH;
             if (sol_memcmp(prh->tree_uid, th->tree_uid, 16) != 0) return ERR_BAD_PATH;
             if (prh->next_leaf_idx != node_hdr(cur->data)->node_idx) return ERR_BAD_PATH; /* predecessor check */
             cur = prev; idx = prh->key_count - 1;
@@ -1199,7 +1216,7 @@ static uint64_t do_multi_leaf_insert_fast(SolParameters *p) {
         uint32_t pbase = 2 + (uint32_t)li * path_len;
         const uint8_t *first_key = p->data + cursor;
 
-        e = check_node(&p->ka[pbase], p->program_id, ns, th->root_node_idx, th->tree_uid, false);
+        e = check_node(&p->ka[pbase], p->program_id, th, th->root_node_idx, false);
         if (e) return e;
         for (int lvl = 0; lvl < path_len - 1; lvl++) {
             SolAccountInfo *cur = &p->ka[pbase + lvl];
@@ -1209,7 +1226,7 @@ static uint64_t do_multi_leaf_insert_fast(SolParameters *p) {
             uint64_t *kids = node_kids(cur->data, F);
             uint64_t desc = (pos < ch->key_count && key_cmp(key_ptr(cur->data, pos), first_key) == 0)
                             ? kids[pos + 1] : kids[pos];
-            e = check_node(&p->ka[pbase + lvl + 1], p->program_id, ns, desc, th->tree_uid, false);
+            e = check_node(&p->ka[pbase + lvl + 1], p->program_id, th, desc, false);
             if (e) return e;
         }
         SolAccountInfo *leaf = &p->ka[pbase + path_len - 1];
