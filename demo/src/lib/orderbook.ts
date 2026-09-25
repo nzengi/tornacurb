@@ -4,6 +4,7 @@
 // instruction wire formats + the off-chain fill computation a taker needs for a match.
 import "./polyfill";
 import {
+  type Connection,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
@@ -116,13 +117,18 @@ export function initMarketIx(args: {
 
 // ---- trading instructions (used by the frontend) ----
 
-/** PlaceOrder (disc 0, hot path InsertFast). Escrows base (ASK) or quote (BID), inserts. */
+/** PlaceOrder (disc 0, hot path InsertFast). Escrows base (ASK) or quote (BID), inserts.
+ *
+ *  `slot` is only a routing estimate: the program stamps the key with the slot the order lands in,
+ *  so pass the current slot (connection.getSlot) and the planned path will almost always still be
+ *  the right one. If it is not, the place reverts whole and can simply be rebuilt. The returned
+ *  `key` is the PLANNED key; the key to cancel with is the landed one -- see `landedKey`. */
 export async function placeIx(args: {
   reader: AccountReader; tree: Tree; orderbook: PublicKey; torna: PublicKey; marketId: bigint;
-  side: Side; price: bigint; size: bigint; nonce: bigint; slot?: bigint;
+  side: Side; price: bigint; size: bigint; nonce: bigint; slot: bigint;
   maker: PublicKey; makerSrc: PublicKey; vault: PublicKey;
 }): Promise<{ ix: TransactionInstruction; key: Uint8Array }> {
-  const slot = args.slot ?? 0n;
+  const slot = args.slot;
   const key = keys.orderKey(sideEnum(args.side), args.price, slot, args.maker, args.nonce);
   const path = await args.tree.path(args.reader, key);
   if (!path) throw new Error("tree not initialized / path unresolved");
@@ -146,10 +152,10 @@ export async function placeIx(args: {
  *  and pays spare rent; the book PDA authorizes the engine Insert. Mirrors orderbook::place_cold. */
 export async function placeColdIx(args: {
   reader: AccountReader; tree: Tree; orderbook: PublicKey; torna: PublicKey; marketId: bigint;
-  side: Side; price: bigint; size: bigint; nonce: bigint; slot?: bigint;
+  side: Side; price: bigint; size: bigint; nonce: bigint; slot: bigint;
   maker: PublicKey; makerSrc: PublicKey; vault: PublicKey; rentNode: bigint;
 }): Promise<{ ix: TransactionInstruction; key: Uint8Array } | null> {
-  const slot = args.slot ?? 0n;
+  const slot = args.slot; // routing estimate, as in placeIx
   const key = keys.orderKey(sideEnum(args.side), args.price, slot, args.maker, args.nonce);
   const plan = await args.tree.coldPlan(args.reader, key);
   if (!plan) return null;
@@ -172,6 +178,18 @@ export async function placeColdIx(args: {
     ...spares.map(([pk]) => m(pk, false, true)),
   ];
   return { ix: new TransactionInstruction({ programId: args.orderbook, data, keys: meta }), key };
+}
+
+/** The key a confirmed place actually landed under, which is what CancelOrder takes: the planned
+ *  key with its slot field (bytes 8..16) set to the slot the transaction landed in -- the same slot
+ *  the program read from the clock. (The program also returns the key as return data, for CPI
+ *  callers.) */
+export async function landedKey(conn: Connection, sig: string, planned: Uint8Array): Promise<Uint8Array> {
+  const tx = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  if (!tx) throw new Error(`transaction ${sig} not found`);
+  const key = Uint8Array.from(planned);
+  new DataView(key.buffer).setBigUint64(8, BigInt(tx.slot), false);
+  return key;
 }
 
 /** CancelOrder (disc 1): refund the escrow + remove the order. */

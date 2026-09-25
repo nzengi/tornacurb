@@ -511,6 +511,47 @@ fn main() {
     }
     invariants!("after vault-backdoor attempts (state unchanged)");
 
+    // ============ Time priority comes from the clock, not the maker ============
+    // The key's slot field orders orders at one price. If the maker supplies it, anyone can send
+    // slot 0 and jump every order already resting at that price.
+    {
+        // with equal slots the key breaks ties on the maker's first 8 bytes, so make `late` the
+        // maker that tie-break favours: only a real slot can then put `early` ahead
+        let (early, late) = if makers[1].pubkey().to_bytes()[..8] > makers[2].pubkey().to_bytes()[..8]
+            { (&makers[1], &makers[2]) } else { (&makers[2], &makers[1]) };
+        svm.warp_to_slot(1_000);
+        place!(early, ASK, 150u64, 3u64, 700u64).unwrap(); // honest: rests first
+        svm.warp_to_slot(2_000);
+        place!(late, ASK, 150u64, 3u64, 701u64).unwrap(); // claims slot 0 (the macro always does)
+        invariants!("after two places at one price");
+
+        let (early_slot, late_slot) = {
+            let r = R(&svm);
+            let slot_of = |mk: &Keypair| ask.scan(&r, 10_000).into_iter()
+                .find(|(k, v)| keys::price_of(keys::Side::Ask, k) == 150 && v[0..32] == mk.pubkey().to_bytes()[..])
+                .map(|(k, _)| u64::from_be_bytes(k[8..16].try_into().unwrap()));
+            (slot_of(early), slot_of(late))
+        };
+        check!(early_slot == Some(1_000) && late_slot == Some(2_000),
+            "SECURITY: an order's slot is the slot it landed in, whatever the maker sends");
+
+        // a buy for exactly one order's size at 150 must fill the order that rested first
+        let path = { let r = R(&svm); ask.path(&r, &keys::order_key(keys::Side::Ask, 150, 1_000, &early.pubkey(), 700)).unwrap() };
+        let mut d = vec![2u8, ASK]; d.extend_from_slice(&150u64.to_le_bytes()); d.extend_from_slice(&3u64.to_le_bytes());
+        d.push(1); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump); d.push(1); d.push(path.len() as u8);
+        let mut meta = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
+            AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
+            AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
+            AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
+            AccountMeta::new_readonly(cfg, false), AccountMeta::new(quote_of[&early.pubkey()].pubkey(), false)];
+        for (i, &n) in path.iter().enumerate() { let pk = ask.node_pda(n).0;
+            meta.push(if i == path.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); }
+        let ret = send!([&taker], Instruction::new_with_bytes(ob, &d, meta));
+        check!(ret.as_ref().is_ok_and(|r| r.len() >= 33 && r[0] == 1 && r[1..33] == early.pubkey().to_bytes()[..]),
+            "SECURITY: at one price the earlier order fills first (price-time priority holds)");
+        invariants!("after the time-priority match");
+    }
+
     println!("\nobtest (orderbook: conservation + security): pass={pass} fail={fail} -> {}",
              if fail == 0 { "ALL PASS" } else { "FAILURES" });
     std::process::exit(if fail == 0 { 0 } else { 1 });

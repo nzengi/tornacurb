@@ -33,7 +33,7 @@ async function main() {
     const tree = side === ASK ? askT : bidT;
     const src = side === ASK ? ata(M.baseMint, maker.publicKey) : ata(M.quoteMint, maker.publicKey);
     const vault = new PublicKey(side === ASK ? M.baseVault : M.quoteVault);
-    const { ix } = await placeIx({ reader, tree, orderbook, torna, marketId: BigInt(M.marketId), side, price, size, nonce: nonce++, maker: maker.publicKey, makerSrc: src, vault });
+    const { ix } = await placeIx({ reader, tree, orderbook, torna, marketId: BigInt(M.marketId), side, price, size, nonce: nonce++, slot: BigInt(await conn.getSlot("confirmed")), maker: maker.publicKey, makerSrc: src, vault });
     const sig = await sendAndConfirmTransaction(conn, new Transaction().add(ix), [maker], { commitment: "confirmed" });
     console.log(`placed ${side === ASK ? "ASK" : "BID"} ${size}@${price} (demo${mi})  tx ${sig.slice(0, 12)}…`);
   }

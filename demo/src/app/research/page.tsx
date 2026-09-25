@@ -469,7 +469,8 @@ export default function ResearchPage() {
               <span className="font-medium text-fg">Time priority is slot-granular and tiebreaks are
               client-supplied.</span> A strict global FIFO counter would serialize every placement, so it is
               deliberately not used; uniqueness lives in a writer-chosen tail and time priority is
-              approximate at slot granularity.
+              approximate at slot granularity. The slot itself is the one the order lands in, read by the
+              program from the clock, so a maker cannot claim an earlier one.
             </P>
             <P>
               <span className="font-medium text-fg">Trust and audit.</span> The in-house adversarial review

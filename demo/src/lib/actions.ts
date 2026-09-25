@@ -98,9 +98,11 @@ export async function place(actor: Actor, m: LiveMarket, side: Side, price: bigi
   const makerSrc = ata(payMintOf(m, side), actor.publicKey);
   const r = reader();
   const nonce = BigInt(Date.now());
+  // the program stamps the landed slot into the key; plan the path from the current one so it routes
+  const slot = BigInt(await connection().getSlot("confirmed"));
   const args = {
     reader: r, tree, orderbook: orderbookProgram(), torna: tornaProgram(), marketId: marketIdOf(m),
-    side, price, size, nonce, maker: actor.publicKey, makerSrc, vault: vaultOf(m, side),
+    side, price, size, nonce, slot, maker: actor.publicKey, makerSrc, vault: vaultOf(m, side),
   };
 
   // Route to the cold split path when the target leaf is full (or the tree is empty), so a place
@@ -110,7 +112,7 @@ export async function place(actor: Actor, m: LiveMarket, side: Side, price: bigi
   if (!h) throw new Error(`${m.symbol}: market tree not initialized`);
   let cold = h.height === 0;
   if (!cold) {
-    const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, 0n, actor.publicKey, nonce);
+    const key = keys.orderKey(side === ASK ? keys.Side.Ask : keys.Side.Bid, price, slot, actor.publicKey, nonce);
     const path = await tree.path(r, key);
     if (path && path.length) {
       const d = await r.accountData(tree.nodePda(path[path.length - 1])[0]);

@@ -32,9 +32,10 @@ export function DevX() {
     (async () => {
       try {
         const maker = demoKeypair(0);
+        const slot = BigInt(await connection().getSlot("confirmed"));
         const { ix } = await placeIx({
           reader: reader(connection()), tree: askTree(market), orderbook: orderbookProgram(), torna: tornaProgram(),
-          marketId: marketIdOf(market), side: ASK, price: BigInt(openingMid(market)), size: 1n, nonce: 99n,
+          marketId: marketIdOf(market), side: ASK, price: BigInt(openingMid(market)), size: 1n, nonce: 99n, slot,
           maker: maker.publicKey, makerSrc: maker.publicKey, vault: maker.publicKey,
         });
         const roles = ["maker", "book PDA", "torna", "ask header", "maker src", "vault", "token prog", "cfg"];

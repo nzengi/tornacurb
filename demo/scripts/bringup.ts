@@ -131,7 +131,7 @@ async function main() {
     const vault = side === ASK ? baseVault : quoteVault;
     const { ix } = await placeIx({
       reader, tree, orderbook, torna, marketId: MARKET_ID,
-      side, price, size, nonce: BigInt(mi + 1), maker: maker.publicKey, makerSrc: src, vault,
+      side, price, size, nonce: BigInt(mi + 1), slot: BigInt(await conn.getSlot("confirmed")), maker: maker.publicKey, makerSrc: src, vault,
     });
     await send([ix], [payer, maker]);
     console.log(`  placed ${side === ASK ? "ASK" : "BID"} ${size}@${price} by demo${mi}`);
