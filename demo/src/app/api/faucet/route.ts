@@ -85,6 +85,11 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid pubkey" }, { status: 400 });
   }
+  // a wallet address is an ed25519 public key; an off-curve address (a PDA, or random bytes) has no
+  // associated token account to mint into, and used to surface as a blank 500
+  if (!PublicKey.isOnCurve(dest.toBytes())) {
+    return NextResponse.json({ error: "not a wallet address (off-curve)" }, { status: 400 });
+  }
   const destStr = dest.toBase58();
 
   const now = Date.now();
