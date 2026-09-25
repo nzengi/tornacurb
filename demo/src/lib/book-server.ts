@@ -52,6 +52,14 @@ const readerOf = (c: Connection): AccountReader => ({
   async accountData(k) { const a = await c.getAccountInfo(k, "confirmed"); return a ? Uint8Array.from(a.data) : null; },
 });
 const readers = [readerOf(conn), ...(fallbackConn ? [readerOf(fallbackConn)] : [])];
+/** One account read with the same policy as the book: short retries, then the fallback endpoint. */
+export const resilientReader: AccountReader = {
+  async accountData(k) {
+    let last: unknown;
+    for (const r of readers) { try { return await withRetry(() => r.accountData(k)); } catch (e) { last = e; } }
+    throw last;
+  },
+};
 
 export interface OrderJSON { price: string; size: string; maker: string; keyHex: string }
 function decode(side: typeof keys.Side.Ask | typeof keys.Side.Bid, e: { key: Uint8Array; value: Uint8Array }): OrderJSON {
