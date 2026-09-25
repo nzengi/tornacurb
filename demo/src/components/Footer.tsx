@@ -4,6 +4,10 @@ import { GH_TORNA, GH_TORNACURB } from "@/lib/links";
 import { Address } from "./ui/Address";
 import { GithubIcon } from "./ui/GithubIcon";
 
+// A fund is not a company: name it as a fund (and its sponsor) rather than list it among the companies.
+const FUNDS = LISTINGS.filter((l) => l.blurb.includes("ETF"));
+const COMPANIES = LISTINGS.filter((l) => !l.blurb.includes("ETF"));
+
 export function Footer() {
   return (
     <footer className="mt-10 border-t border-line">
@@ -15,10 +19,13 @@ export function Footer() {
           <span className="font-medium text-muted">Notice.</span> TornaCurb is a technology demonstration
           on Solana devnet. Everything traded here is a devnet test token with no monetary value: it is not a
           share, a security or a claim on any company, and it is not a PreStocks token. TornaCurb is not
-          affiliated with, endorsed by or sponsored by PreStocks or any company whose name appears here
-          ({LISTINGS.map((l) => l.name).join(", ")}). Those names identify the reference prices shown, which
-          come from PreStocks&apos; public catalogue and from Pyth and are displayed for comparison only.
-          Nothing on this site is an offer to buy or sell securities, or investment advice.
+          affiliated with, endorsed by or sponsored by PreStocks, by any company whose name appears here
+          ({COMPANIES.map((l) => l.name).join(", ")})
+          {FUNDS.length > 0 && <>, or by {FUNDS.map((l) => `the ${l.symbol} ETF`).join(", ")} or {FUNDS.length > 1 ? "their sponsors" : "its sponsor"}</>}.
+          Those names identify the reference prices shown, which come from PreStocks&apos; public catalogue
+          and, where available, from Pyth, and are displayed for comparison only. All names and trademarks
+          belong to their respective owners. Nothing on this site is an offer to buy or sell securities, or
+          investment advice.
         </p>
       </div>
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">
