@@ -103,7 +103,7 @@ async function main() {
     rent: BigInt(await rent(229)),
   })], [payer]);
   const cfgAcct = await conn.getAccountInfo(cfg);
-  console.log("market cfg bytes:", cfgAcct?.data.length, "(expect 229)");
+  console.log("market cfg bytes:", cfgAcct?.data.length, "(expect 237: 229 + min_size)");
 
   // 5) demo identities: funded with SOL + base/quote tokens
   console.log("funding demo identities ...");
