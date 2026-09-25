@@ -39,7 +39,11 @@ const N_KEY_COUNT = 2;
 // identities hold far more than they can ever quote.
 const quoteSize = () => BigInt(25 + Math.floor(Math.random() * 45));
 
-const RPC = process.env.RPC_URL || venue.rpcUrl;
+// Not RPC_URL: a pass over every listing is minutes of back-to-back RPC calls, and on the dedicated
+// endpoint that spent the per-second budget the site's own book reads and faucet depend on (they
+// showed empty books while the maker ran). The maker tolerates a slower, separately budgeted
+// endpoint -- a missed quote is re-made next pass. Override with MM_RPC_URL.
+const RPC = process.env.MM_RPC_URL || venue.rpcUrl;
 const conn = new Connection(RPC, "confirmed");
 const TORNA = new PublicKey(venue.tornaProgramId);
 const ORDERBOOK = new PublicKey(venue.orderbookProgramId);
