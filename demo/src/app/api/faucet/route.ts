@@ -17,7 +17,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction, createMintToInstruction,
   getAssociatedTokenAddressSync, getAccount,
@@ -51,6 +51,25 @@ const ipSeen = new Map<string, number>();
 let globalHits: { t: number }[] = [];
 let dayStart = 0;
 let daySpent = 0;
+
+// The RPC rate-limits per second, and a 429 is the provider saying "not this instant", not "no".
+// The book and the RPC proxy already absorb it; the faucet passed it straight to the visitor as
+// "faucet unavailable" on the first busy moment, so retry transient failures briefly here too.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+  let wait = 300;
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = (e as Error)?.message ?? "";
+      const transient = msg.includes("429") || msg.includes("-32429") || msg.toLowerCase().includes("rate limit")
+        || msg.toLowerCase().includes("fetch failed") || msg.includes("503") || msg.includes("502");
+      if (i >= attempts || !transient) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+      wait *= 2;
+    }
+  }
+}
 
 const clientIp = (req: Request) => req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
 const tooSoon = (m: Map<string, number>, k: string, ms: number, now: number) => now - (m.get(k) ?? 0) < ms;
@@ -102,14 +121,14 @@ export async function POST(req: Request) {
 
     // idempotent: skip if the wallet still holds cash. A trader who spent it all on shares can
     // re-fund, which is the point. A missing ATA reads as 0.
-    const amt = async (a: PublicKey) => { try { return (await getAccount(conn, a)).amount; } catch { return 0n; } };
+    const amt = async (a: PublicKey) => { try { return (await withRetry(() => getAccount(conn, a))).amount; } catch { return 0n; } };
     if ((await amt(quoteAta)) >= FUNDED_QUOTE) {
       rollback();
       return NextResponse.json({ alreadyFunded: true });
     }
 
     // reserve floor: never drain below 0.1 SOL (true per-call cost incl. rent)
-    if (await conn.getBalance(faucet.publicKey) < RESERVE_LAMPORTS + CALL_COST) {
+    if (await withRetry(() => conn.getBalance(faucet.publicKey)) < RESERVE_LAMPORTS + CALL_COST) {
       rollback();
       return NextResponse.json({ error: "faucet temporarily out of funds" }, { status: 503 });
     }
@@ -120,7 +139,21 @@ export async function POST(req: Request) {
       createMintToInstruction(quoteMint, quoteAta, faucet.publicKey, QUOTE_AMT),
       SystemProgram.transfer({ fromPubkey: faucet.publicKey, toPubkey: dest, lamports: SOL_LAMPORTS }),
     );
-    const sig = await sendAndConfirmTransaction(conn, tx, [faucet], { commitment: "confirmed" });
+    // send, then confirm by polling signature status: sendAndConfirmTransaction waits on the RPC's
+    // websocket, which a serverless function cannot rely on (the browser path already polls, for the
+    // same reason). Re-sending a signed transaction after a 429 is safe: it has one signature.
+    const { blockhash, lastValidBlockHeight } = await withRetry(() => conn.getLatestBlockhash("confirmed"));
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = faucet.publicKey;
+    tx.sign(faucet);
+    const sig = await withRetry(() => conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }));
+    for (;;) {
+      const st = (await withRetry(() => conn.getSignatureStatuses([sig]))).value[0];
+      if (st?.err) throw new Error(`faucet tx failed: ${JSON.stringify(st.err)}`);
+      if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") break;
+      if ((await withRetry(() => conn.getBlockHeight("confirmed"))) > lastValidBlockHeight) throw new Error("faucet tx expired");
+      await new Promise((r) => setTimeout(r, 800));
+    }
     return NextResponse.json({ sig, quote: QUOTE_AMT.toString(), sol: SOL_LAMPORTS / 1e9 });
   } catch (e) {
     rollback(); // the spend didn't land; don't burn the user's dest cooldown
