@@ -5,10 +5,18 @@ import { LiveMarket } from "@/components/LiveMarket";
 import { Parallelism } from "@/components/Parallelism";
 import { WhyBook } from "@/components/WhyBook";
 import { LISTINGS } from "@/lib/listings";
+import { initialBook } from "@/lib/book-server";
+import { liveMarkets } from "@/lib/venue";
 
 const GH = "https://github.com/nzengi/torna";
 
-export default function Home() {
+// The hero book and the book-vs-AMM comparison both open on the first listing: render its book into
+// the HTML, refreshed at most every 30s, so they show real prices before any client script runs.
+export const revalidate = 30;
+
+export default async function Home() {
+  const first = liveMarkets()[0];
+  const initial = first ? await initialBook(first.symbol) : null;
   const preipo = LISTINGS.filter((l) => l.kind === "preipo");
   const listed = LISTINGS.filter((l) => l.kind === "listed");
 
@@ -55,7 +63,7 @@ export default function Home() {
       </section>
 
       {/* The problem, computed rather than asserted */}
-      <WhyBook />
+      <WhyBook initial={initial} />
 
       {/* The venue */}
       <section className="mx-auto max-w-6xl px-6 py-16">
@@ -97,7 +105,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-8 lg:mt-0"><LiveMarket /></div>
+          <div className="mt-8 lg:mt-0"><LiveMarket initial={initial} /></div>
         </div>
       </section>
 

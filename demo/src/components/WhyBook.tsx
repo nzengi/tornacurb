@@ -9,7 +9,7 @@
 // not a strawman, it is just the wrong instrument for an asset with no reference price.
 import { useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { useBook } from "@/lib/useBook";
+import { useBook, type InitialBook } from "@/lib/useBook";
 import { liveMarkets } from "@/lib/venue";
 
 const SIZES = [10, 50, 200];
@@ -19,14 +19,16 @@ const POOLS = [
 ];
 
 const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
-const usd = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+// a fixed locale: this renders on the server too (from the page's book snapshot), and server and
+// browser must print the same text
+const usd = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-export function WhyBook() {
+export function WhyBook({ initial }: { initial?: InitialBook | null }) {
   const markets = liveMarkets();
   const [sym, setSym] = useState(markets[0]?.symbol ?? "");
   const [size, setSize] = useState(SIZES[1]);
   const [pool, setPool] = useState(POOLS[0]);
-  const { asks, loading, error } = useBook(sym, 30000);
+  const { asks, loading, error } = useBook(sym, 30000, initial);
 
   const result = useMemo(() => {
     if (!asks.length) return null;

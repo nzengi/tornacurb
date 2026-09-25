@@ -11,7 +11,7 @@ import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { ASK, BID, type Side } from "@/lib/orderbook";
 import { cancel, keypairActor, walletActor, requestFaucet, type Actor } from "@/lib/actions";
-import { useBook } from "@/lib/useBook";
+import { useBook, type InitialBook } from "@/lib/useBook";
 import { connection, demoKeypair, explorerTx, liveMarket, reader, shorten, VENUE } from "@/lib/venue";
 import { OrderBook } from "./OrderBook";
 import { Trade } from "./Trade";
@@ -23,9 +23,9 @@ const amount = (d: Uint8Array | null) =>
 // neon-friendly avatar hues, distinct from bid-green / ask-pink so they never read as a side
 const TRADER_COLORS = ["#0088ff", "#9b5cff", "#00d0b0", "#ffb020"];
 
-export function Terminal({ symbol }: { symbol: string }) {
+export function Terminal({ symbol, initial }: { symbol: string; initial?: InitialBook | null }) {
   const market = liveMarket(symbol);
-  const book = useBook(symbol);
+  const book = useBook(symbol, 20000, initial);
   const wallet = useWallet();
   const modal = useWalletModal();
   const connected = wallet.connected && !!wallet.publicKey;

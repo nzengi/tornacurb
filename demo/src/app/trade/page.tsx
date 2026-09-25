@@ -2,8 +2,16 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Venue } from "@/components/Venue";
 import { DevX } from "@/components/DevX";
+import { initialBook } from "@/lib/book-server";
+import { liveMarkets } from "@/lib/venue";
 
-export default function TradePage() {
+// Render the first listing's book into the HTML, refreshed at most every 30s, so the terminal opens
+// on real prices instead of dashes (and so does anything reading the page without running scripts).
+export const revalidate = 30;
+
+export default async function TradePage() {
+  const first = liveMarkets()[0];
+  const initial = first ? await initialBook(first.symbol) : null;
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
       <div className="mb-6">
@@ -24,7 +32,7 @@ export default function TradePage() {
         </p>
       </div>
 
-      <Venue />
+      <Venue initial={initial} />
 
       <div className="mt-12">
         <DevX />

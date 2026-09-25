@@ -4,18 +4,19 @@
 // real, right in the hero. The status never claims "live" over an empty or errored book.
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { useBook } from "@/lib/useBook";
+import { useBook, type InitialBook } from "@/lib/useBook";
 import { liveMarkets } from "@/lib/venue";
 
-export function LiveMarket() {
+export function LiveMarket({ initial }: { initial?: InitialBook | null }) {
   // the hero shows whichever listing sits first in the venue table
   const first = liveMarkets()[0];
-  const { asks, bids, loading, error } = useBook(first?.symbol ?? "");
+  const { asks, bids, loading, error } = useBook(first?.symbol ?? "", 20000, initial);
   const bestAsk = asks[0]?.price;
   const bestBid = bids[0]?.price;
   const spread = bestAsk !== undefined && bestBid !== undefined ? bestAsk - bestBid : undefined;
   const count = asks.length + bids.length;
-  const fmt = (v: bigint | undefined) => (v !== undefined ? v.toLocaleString() : "-");
+  // a fixed locale: this now renders on the server too, and server and browser must print the same text
+  const fmt = (v: bigint | undefined) => (v !== undefined ? v.toLocaleString("en-US") : "-");
 
   const empty = !loading && !error && count === 0;
   const dot = error ? "bg-ask" : empty ? "bg-serial" : "bg-bid";
