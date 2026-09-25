@@ -108,6 +108,12 @@ impl Env {
 
     // full Insert; returns CU
     fn insert(&mut self, payer: &Keypair, t: u32, key_n: u32) -> Result<u64, String> {
+        let rent_node = self.rent(self.node_size());
+        self.insert_rent(payer, t, key_n, rent_node)
+    }
+
+    // full Insert paying `rent_node` for each node it creates
+    fn insert_rent(&mut self, payer: &Keypair, t: u32, key_n: u32, rent_node: u64) -> Result<u64, String> {
         let c = payer.pubkey();
         let (hdr, _) = self.pda_hdr(&c, t);
         let (alc, _) = self.pda_alloc(&c, t);
@@ -115,7 +121,6 @@ impl Env {
         let (_r, height, hw) = self.header(&c, t);
         let path = self.path(&c, t, &key);
         let spare_n = height as usize + 2;
-        let rent_node = self.rent(self.node_size());
         let mut d = vec![2u8];
         d.extend_from_slice(&key);
         d.extend_from_slice(&[(key_n & 0xFF) as u8; VS]);
@@ -892,6 +897,87 @@ fn main() {
         let r = range(&mut env, &p, tv, out, 50, k32(0), 1, &[fake]);
         check!(r.as_ref().is_err_and(|e| e.contains("Custom(113)")),
             format!("SECURITY: reverse RangeScan rejects a scratch posing as the predecessor leaf (NODE_UNINIT), got {r:?}"));
+    }
+
+    // ---- security: every account the program creates goes through cpi_create ----
+    // a node created with 0 lamports is linked into the tree and then dropped by the runtime
+    {
+        let t = 62u32;
+        env.init(&p, t);
+        for n in [10u32, 20, 30, 40] { env.insert(&p, t, n).unwrap(); } // one full leaf (F=4)
+        let r = env.insert_rent(&p, t, 50, 0);                          // must split -> creates nodes
+        check!(r.as_ref().is_err_and(|e| e.contains("Custom(116)")), format!("SECURITY: Insert refuses to create a node with 0 lamports (BAD_PARAM), got {r:?}"));
+        let (root, height, _) = env.header(&p.pubkey(), t);
+        check!(height == 1 && env.acc(&env.pda_node(&p.pubkey(), t, root).0).is_some(), "the tree is intact after the refused split");
+        check!(env.insert(&p, t, 50).is_ok() && env.find(&p, t, 50).0, "the same split with rent succeeds");
+    }
+    // funding the next node PDA in advance must not stop the tree from splitting
+    {
+        let t = 63u32;
+        let c = p.pubkey();
+        env.init(&p, t);
+        for n in [10u32, 20, 30, 40] { env.insert(&p, t, n).unwrap(); }
+        let (_, _, hw) = env.header(&c, t);
+        let ns_rent = env.rent(env.node_size());
+        // the next two indices a split draws: one below rent (topped up), one above it (as-is)
+        for (i, amt) in [(1u64, 1_000u64), (2, ns_rent + 1_000)] {
+            let to = env.pda_node(&c, t, hw as u64 + i).0;
+            let mut d = vec![2u8, 0, 0, 0]; d.extend_from_slice(&amt.to_le_bytes());
+            env.run(&q, Instruction::new_with_bytes(Pubkey::default(), &d, vec![
+                AccountMeta::new(q.pubkey(), true), AccountMeta::new(to, false)])).expect("attacker pre-funds a node PDA");
+        }
+        let r = env.insert(&p, t, 50);
+        check!(r.is_ok(), format!("SECURITY: a split still succeeds when the next node PDAs were pre-funded, got {r:?}"));
+        let mut all = true;
+        for n in [10u32, 20, 30, 40, 50] { if !env.find(&p, t, n).0 { all = false; } }
+        check!(all, "every key is present after the pre-funded split");
+        let (_, height, _) = env.header(&c, t);
+        let new_leaf = env.acc(&env.pda_node(&c, t, hw as u64 + 1).0).unwrap();
+        check!(height == 2 && new_leaf.len() == env.node_size(), "the pre-funded PDA became a full-size node");
+    }
+    // a tree header only at the canonical PDA: another bump (or a signing keypair) would be a second
+    // header with the same tree_uid -- sharing every node while carrying its own authority.
+    // Each case gets its own tree_id so one outcome cannot mask the next.
+    {
+        let c = p.pubkey();
+        let init_ix = |env: &Env, t: u32, hdr: Pubkey, hb: u8| {
+            let (alc, ab) = env.pda_alloc(&c, t);
+            let mut d = vec![0u8]; d.extend_from_slice(&t.to_le_bytes()); d.push(hb); d.push(ab);
+            d.extend_from_slice(&(VS as u16).to_le_bytes()); d.extend_from_slice(&(F as u16).to_le_bytes());
+            d.extend_from_slice(&env.rent(146).to_le_bytes()); d.extend_from_slice(&env.rent(32).to_le_bytes());
+            Instruction::new_with_bytes(env.prog, &d, vec![AccountMeta::new(c, true), AccountMeta::new(hdr, false),
+                AccountMeta::new(alc, false), AccountMeta::new_readonly(Pubkey::default(), false)])
+        };
+        // another bump's PDA
+        let t = 64u32;
+        let (_, canon) = env.pda_hdr(&c, t);
+        let other = (0..canon).rev().find_map(|b| Pubkey::create_program_address(
+            &[b"thdr", c.as_ref(), &t.to_le_bytes(), &[b]], &env.prog).ok().map(|k| (k, b))).unwrap();
+        let ix = init_ix(&env, t, other.0, other.1);
+        let r = env.run(&p, ix);
+        check!(r.as_ref().is_err_and(|e| e.contains("Custom(105)")), format!("SECURITY: InitTree rejects a non-canonical header bump, got {r:?}"));
+        // a keypair that signs the transaction, passed where the header PDA goes
+        let t = 65u32;
+        let (_, canon) = env.pda_hdr(&c, t);
+        let kp = Keypair::new();
+        let mut ix = init_ix(&env, t, kp.pubkey(), canon);
+        ix.accounts[1] = AccountMeta::new(kp.pubkey(), true);
+        let bh = env.svm.latest_blockhash();
+        let r = env.svm.send_transaction(Transaction::new(&[&p, &kp], Message::new(&[ix], Some(&c)), bh)).map_err(|m| format!("{:?}", m.err));
+        check!(r.as_ref().is_err_and(|e| e.contains("Custom(105)")), format!("SECURITY: InitTree rejects a signing keypair in place of the header PDA, got {:?}", r.map(|_| ())));
+        let t = 66u32;
+        env.init(&p, t);
+        check!(env.insert(&p, t, 1).is_ok(), "the canonical header still initializes");
+    }
+    // more accounts than the entrypoint can hold are refused, not read past the array
+    {
+        let c = p.pubkey();
+        let mut d = vec![16u8]; d.extend_from_slice(&k32(77)); d.extend_from_slice(&[7u8; VS]); d.push(1);
+        let mut metas = vec![AccountMeta::new_readonly(env.pda_hdr(&c, ta).0, false), AccountMeta::new_readonly(c, true)];
+        let leaf = env.pda_node(&c, ta, env.path(&c, ta, &k32(77))[0]).0;
+        for _ in 0..44 { metas.push(AccountMeta::new(leaf, false)); } // 46 account references
+        let r = env.run(&p, Instruction::new_with_bytes(prog, &d, metas));
+        check!(r.as_ref().is_err_and(|e| e.contains("InvalidArgument")), format!("SECURITY: an instruction with more than 40 accounts is refused, got {r:?}"));
     }
 
     println!("\nCU: Insert(first/split-path)={cu_split}  InsertFast={cu_fast}  Find={cu_find}");
