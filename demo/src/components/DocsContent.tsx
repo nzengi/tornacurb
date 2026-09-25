@@ -8,6 +8,7 @@ import { Address } from "@/components/ui/Address";
 import { CodeBlock as Code } from "@/components/ui/CodeBlock";
 import { VENUE, liveMarkets, explorerTx } from "@/lib/venue";
 import tx from "@/lib/sample-tx.json";
+import { GH_TORNA, GH_TORNACURB } from "@/lib/links";
 
 function H({ id, kicker, children }: { id: string; kicker?: string; children: React.ReactNode }) {
   return (
@@ -56,7 +57,7 @@ const BENCH: [string, string, string, string, string][] = [
 ];
 const CU: [string, string][] = [
   ["InsertFast (F = 16 / 64 / 128)", "8k / 23k / 43k"],
-  ["Insert + split + root-grow (F = 64 / 128)", "38k / 68k"],
+  ["Insert + split + root-grow (F = 64 / 128)", "56k / 76k"],
   ["Delete + merge + collapse", "50k"],
   ["MultiLeafInsertFast (8 x 12)", "204k"],
   ["BulkInsertFast (32 front-insert, worst case)", "400k"],
@@ -429,14 +430,16 @@ const ix = await tree.insertFastIx(reader, authority, key, value);
       <section>
         <H id="security" kicker="Honest posture">Security and testing</H>
         <P>
-          The engine and SDK went through in-house adversarial review to convergence (rounds until two
-          consecutive clean passes), with independent skeptics attacking from distinct angles. (The
+          The engine and SDK went through in-house adversarial review in rounds that ended in two
+          consecutive clean passes, with independent skeptics attacking from distinct angles. That was not
+          the end: a September 2026 pass still found critical issues, fixed and redeployed as below. (The
           orderbook&apos;s own review is in the TornaCurb tab.)
         </P>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {[
             ["Engine", "5 rounds + a class audit. The recurring class 'program-owned is not tenant-owned' struck four times (node, allocator, scratch, delegate); fixed by binding every caller-provided account to its 128-bit tree_uid."],
             ["SDK", "5 rounds. A faithful 1:1 port with no critical or high finding; added input validation the Rust type system enforced for free."],
+            ["Engine, Sept 2026", "A 0-lamport node could brick a tree; a pre-funded node PDA stopped all splits; a non-canonical header bump shared a tree's nodes; a scratch account passed for a node. Fixed through one checked account-creation path and exact header checks; each fix has a test that fails without it; redeployed at new program ids."],
           ].map(([t, d]) => (
             <div key={t} className="rounded-xl border border-line bg-panel p-4">
               <div className="text-sm font-semibold text-fg">{t}</div>
@@ -517,7 +520,8 @@ make ts           # TS SDK: golden vectors + bankrun e2e (12/12)`}</Code>
         <H id="roadmap" kicker="Status">Roadmap</H>
         <div className="mt-4 space-y-2 text-sm">
           {[
-            ["done", "Engine: 15 instructions, C for SBF, 5 adversarial rounds to convergence"],
+            ["done", "Engine: 15 instructions, C for SBF, 5 adversarial rounds, plus a Sept 2026 pass that fixed critical issues"],
+            ["done", "Security fixes redeployed as new programs (Torna DQW2Kq…, orderbook 5FZVhB…); venue rebuilt on them"],
             ["done", "torna-sdk (Rust) + torna-cpi crate"],
             ["done", "Orderbook reference CLOB: two-sided escrow, place / cancel / match, cold split, keeper compact"],
             ["done", "Published: torna-sdk on npm + crates.io, and torna-cpi on crates.io, v0.1.0"],
@@ -533,7 +537,8 @@ make ts           # TS SDK: golden vectors + bankrun e2e (12/12)`}</Code>
           ))}
         </div>
         <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-          <a className="hover:text-brand" href="https://github.com/nzengi/torna" target="_blank" rel="noreferrer">GitHub</a>
+          <a className="hover:text-brand" href={GH_TORNA} target="_blank" rel="noreferrer">Torna on GitHub</a>
+          <a className="hover:text-brand" href={GH_TORNACURB} target="_blank" rel="noreferrer">TornaCurb on GitHub</a>
           <a className="hover:text-brand" href="https://www.npmjs.com/package/torna-sdk" target="_blank" rel="noreferrer">torna-sdk on npm</a>
           <a className="hover:text-brand" href="https://crates.io/crates/torna-sdk" target="_blank" rel="noreferrer">torna-sdk on crates.io</a>
           <a className="hover:text-brand" href={`https://explorer.solana.com/address/${VENUE.tornaProgramId}?cluster=devnet`} target="_blank" rel="noreferrer">engine on explorer</a>
@@ -679,13 +684,14 @@ export function DexDocs() {
       <section>
         <H id="security" kicker="Honest posture">Escrow and security</H>
         <P>
-          The orderbook went through the same in-house adversarial review to convergence as the engine, five
-          rounds, because it is the money path.
+          The orderbook went through the same in-house adversarial review as the engine, five rounds,
+          because it is the money path. A September 2026 pass then found issues those rounds missed.
         </P>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {[
             ["Orderbook", "5 rounds. 5 critical + 1 high + 1 medium found and fixed. The headline: a fake-tree match/cancel drained the real vault at ~0 cost, fixed by binding the book to the market config (check_book)."],
             ["Demo + faucet", "5 rounds. The public faucet hardened (atomic mint, on-chain reserve floor, layered rate limits); money-path builders byte-checked against the on-chain oracle."],
+            ["Orderbook, Sept 2026", "A vault keeping a close authority could redirect escrow; time priority was maker-chosen; 1-atom orders could clog the best price. Fixed (ATA vaults, clock slot, per-market min_size), each with a test that fails without it, and redeployed."],
           ].map(([t, d]) => (
             <div key={t} className="rounded-xl border border-line bg-panel p-4">
               <div className="text-sm font-semibold text-fg">{t}</div>

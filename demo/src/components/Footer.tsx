@@ -1,5 +1,6 @@
 import { VENUE } from "@/lib/venue";
 import { LISTINGS } from "@/lib/listings";
+import { GH_TORNA, GH_TORNACURB } from "@/lib/links";
 import { Address } from "./ui/Address";
 import { GithubIcon } from "./ui/GithubIcon";
 
@@ -23,8 +24,11 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <a href="https://github.com/nzengi/torna" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 font-medium text-fg transition-colors duration-100 hover:text-brand">
-              <GithubIcon className="h-4 w-4" /> GitHub
+            <a href={GH_TORNACURB} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 font-medium text-fg transition-colors duration-100 hover:text-brand">
+              <GithubIcon className="h-4 w-4" /> TornaCurb
+            </a>
+            <a href={GH_TORNA} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 font-medium text-fg transition-colors duration-100 hover:text-brand">
+              <GithubIcon className="h-4 w-4" /> Torna engine
             </a>
             <a href="https://www.npmjs.com/package/torna-sdk" target="_blank" rel="noreferrer" className="font-medium text-fg transition-colors duration-100 hover:text-brand">torna-sdk (npm)</a>
             <a href="https://crates.io/crates/torna-sdk" target="_blank" rel="noreferrer" className="font-medium text-fg transition-colors duration-100 hover:text-brand">torna-sdk (crates.io)</a>
@@ -44,8 +48,9 @@ export function Footer() {
           </div>
         </div>
         <p className="max-w-md leading-relaxed">
-          In-house adversarial review to convergence (engine, orderbook, SDK). External audit pending,
-          do not treat as production-audited. Devnet only.
+          In-house adversarial review (engine, orderbook, SDK); a September 2026 pass found and fixed
+          critical issues, and the fixed programs are redeployed. External audit pending, do not treat as
+          production-audited. Devnet only.
         </p>
       </div>
     </footer>

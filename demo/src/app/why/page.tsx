@@ -229,8 +229,8 @@ export default function WhyPage() {
           </P>
           <P>
             <strong className="text-fg">The audit is the gate.</strong> The engine and the order book
-            have been through in-house adversarial review to convergence; the external audit is
-            pending. We are not putting an unaudited matching engine in front of real collateral, and
+            have been through in-house adversarial review, and a September 2026 pass still found and
+            fixed critical issues, which is the argument for an external audit; it is pending. We are not putting an unaudited matching engine in front of real collateral, and
             no amount of hackathon pressure changes that. Nothing about the venue changes once it
             clears — listing a real token is a config row, not a protocol change, because the venue
             reads mints from a table and has no opinion about which ones.

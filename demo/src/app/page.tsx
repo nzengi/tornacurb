@@ -5,10 +5,11 @@ import { LiveMarket } from "@/components/LiveMarket";
 import { Parallelism } from "@/components/Parallelism";
 import { WhyBook } from "@/components/WhyBook";
 import { LISTINGS } from "@/lib/listings";
+import { GH_TORNA, GH_TORNACURB } from "@/lib/links";
 import { initialBook } from "@/lib/book-server";
 import { liveMarkets } from "@/lib/venue";
 
-const GH = "https://github.com/nzengi/torna";
+const GH = GH_TORNA;
 
 // The hero book and the book-vs-AMM comparison both open on the first listing: render its book into
 // the HTML, refreshed at most every 30s, so they show real prices before any client script runs.
@@ -156,6 +157,7 @@ export default async function Home() {
           ))}
         </div>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted">
+          <a href={GH_TORNACURB} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-brand"><GithubIcon className="h-4 w-4" /> TornaCurb on GitHub</a>
           <a href={GH} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-brand"><GithubIcon className="h-4 w-4" /> Torna on GitHub</a>
           <span className="text-faint">TornaCurb is built on Torna, our own open-source primitive.</span>
         </div>

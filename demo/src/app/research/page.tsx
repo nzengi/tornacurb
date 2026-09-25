@@ -4,6 +4,7 @@ import { Throughput } from "@/components/diagrams/Throughput";
 import { Compare } from "@/components/Compare";
 import { VENUE, explorerTx } from "@/lib/venue";
 import tx from "@/lib/sample-tx.json";
+import { GH_TORNA, GH_TORNACURB } from "@/lib/links";
 
 export const metadata = {
   title: "Engineering research · Torna, the index under TornaCurb",
@@ -67,7 +68,7 @@ const BENCH: [string, string, string, string, string][] = [
 ];
 const CU: [string, string][] = [
   ["InsertFast, hot path (F = 16 / 64 / 128)", "8k / 23k / 43k"],
-  ["Insert with split + root-grow (F = 64 / 128)", "38k / 68k"],
+  ["Insert with split + root-grow (F = 64 / 128)", "56k / 76k"],
   ["Delete with merge + collapse", "50k"],
   ["MultiLeafInsertFast (8 x 12)", "204k"],
   ["BulkInsertFast (32 front-insert, worst case)", "400k"],
@@ -101,7 +102,8 @@ export default function ResearchPage() {
             belongs on a book rather than a curve — see <a href="/why" className="font-medium text-brand hover:text-brand-hi">Why an order book</a>.
           </p>
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
-            <a className="hover:text-brand" href="https://github.com/nzengi/torna" target="_blank" rel="noreferrer">GitHub</a>
+            <a className="hover:text-brand" href={GH_TORNA} target="_blank" rel="noreferrer">Torna on GitHub</a>
+            <a className="hover:text-brand" href={GH_TORNACURB} target="_blank" rel="noreferrer">TornaCurb on GitHub</a>
             <a className="hover:text-brand" href="https://www.npmjs.com/package/torna-sdk" target="_blank" rel="noreferrer">torna-sdk on npm</a>
             <a className="hover:text-brand" href="/trade">Live demo</a>
             <a className="hover:text-brand" href={explorerTx(tx.signature)} target="_blank" rel="noreferrer">A captured transaction</a>
@@ -125,9 +127,10 @@ export default function ResearchPage() {
               for disjoint versus contended writes on a real validator banking stage, single-key hot
               operations under the 200k compute-unit default even at fanout 128, and a correctness regimen
               of an 8,000-operation on-chain differential, 60k-iteration fuzzing, and five rounds of
-              adversarial review to convergence with token-conservation invariants on the reference order
-              book. We close with limitations and open problems, including that matching itself stays
-              serial and that an external audit is still pending.
+              adversarial review with token-conservation invariants on the reference order book, followed by
+              a later pass that still found and fixed critical issues. We close with limitations and open
+              problems, including that matching itself stays serial and that an external audit is still
+              pending.
             </P>
           </section>
 
@@ -437,7 +440,11 @@ export default function ResearchPage() {
               the allocator, scratch, and delegates, until a systematic sweep closed the class. The order
               book took five rounds, the headline being a forged-tree settlement that drained the real
               vault at near-zero cost, fixed by binding the book to its market config before any token
-              moves.
+              moves. Convergence was not the end. A September 2026 pass found critical issues those rounds
+              had missed: an escrow redirect through a vault&apos;s kept close authority, maker-chosen time
+              priority, and in the engine a zero-rent node that bricked a tree, pre-funded node addresses that
+              stopped splits, and a scratch account that passed for a node. Each is fixed with a test that
+              fails without it, and the fixed programs are redeployed.
             </P>
 
             <P className="mt-8">
@@ -511,7 +518,8 @@ export default function ResearchPage() {
             <P>Everything above is reproducible and live.</P>
             <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
               {[
-                ["Source (engine, SDKs, orderbook, benchmark)", "https://github.com/nzengi/torna"],
+                ["Engine source: Torna (engine, SDKs, CPI crate, benchmark)", GH_TORNA],
+                ["Venue source: TornaCurb (this app, order book, deployed programs)", GH_TORNACURB],
                 ["torna-sdk on npm", "https://www.npmjs.com/package/torna-sdk"],
                 ["Live demo (TornaCurb on devnet)", "/trade"],
                 ["On-chain explorer", "/explorer"],
