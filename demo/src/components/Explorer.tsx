@@ -7,16 +7,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownUp, Boxes, ExternalLink, RefreshCw, Search } from "lucide-react";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { keys, type Tree, type Header, type AccountReader } from "torna-sdk";
-import { askTree, bidTree, connection, reader, VENUE, liveMarket, explorerAddr, explorerTx, shorten, type LiveMarket } from "@/lib/venue";
+import { type Header } from "torna-sdk";
+import { askTree, bidTree, connection, VENUE, liveMarket, explorerAddr, explorerTx, shorten, type LiveMarket } from "@/lib/venue";
 import { Address } from "./ui/Address";
+import { parseExplorer, type Order, type Leaf, type SideView, type Overview } from "@/lib/explorer-read";
 
-const NODE_HDR = 44, N_KEY_COUNT = 2, N_NEXT_LEAF = 20, KEY = 32;
+const NODE_HDR = 44;
 const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TORNA_MAGIC = 0x3454_4254; // "TBT4" as u32 LE
 
 const u64le = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(o, true);
-const u64be = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(o, false);
 const u32le = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(o, true);
 const u16le = (d: Uint8Array, o: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint16(o, true);
 const hex = (d: Uint8Array) => Buffer.from(d).toString("hex");
@@ -31,50 +31,6 @@ function b58decode(s: string): Uint8Array {
   }
   for (let k = 0; k < s.length && s[k] === "1"; k++) bytes.push(0);
   return Uint8Array.from(bytes.reverse());
-}
-
-interface Order { price: bigint; size: bigint; maker: string; keyHex: string; leaf: bigint; slot: bigint; }
-interface Leaf { idx: bigint; pk: string; next: bigint; count: number; }
-interface SideView { header: Header; leaves: Leaf[]; orders: Order[]; }
-interface Overview { baseVault: bigint; quoteVault: bigint; baseDec: number; quoteDec: number; }
-
-async function readSide(r: AccountReader, tree: Tree, side: typeof keys.Side.Ask | typeof keys.Side.Bid): Promise<SideView | null> {
-  const header = await tree.header(r);
-  if (!header) return null;
-  const voff = NODE_HDR + (header.fanout + 1) * KEY;
-  const leaves: Leaf[] = [];
-  const orders: Order[] = [];
-  let idx = header.leftmost;
-  let guard = 0;
-  while (idx !== 0n && guard++ < 64) {
-    const pk = tree.nodePda(idx)[0];
-    const d = await r.accountData(pk);
-    if (!d) break;
-    const cnt = u16le(d, N_KEY_COUNT);
-    let live = 0;
-    for (let i = 0; i < cnt; i++) {
-      const keyBytes = d.subarray(NODE_HDR + i * KEY, NODE_HDR + i * KEY + KEY);
-      const size = u64be(d, voff + i * header.valueSize + 32);
-      if (size === 0n) continue;
-      live++;
-      orders.push({
-        price: keys.priceOf(side, keyBytes), size,
-        maker: new PublicKey(d.subarray(voff + i * header.valueSize, voff + i * header.valueSize + 32)).toBase58(),
-        keyHex: hex(keyBytes), slot: u64be(keyBytes, 8), leaf: idx,
-      });
-    }
-    leaves.push({ idx, pk: pk.toBase58(), next: u64le(d, N_NEXT_LEAF), count: live });
-    idx = u64le(d, N_NEXT_LEAF);
-  }
-  return { header, leaves, orders };
-}
-async function tokenAmount(r: AccountReader, addr: string): Promise<bigint> {
-  const d = await r.accountData(new PublicKey(addr));
-  return d && d.length >= 72 ? u64le(d, 64) : 0n;
-}
-async function mintDecimals(r: AccountReader, addr: string): Promise<number> {
-  const d = await r.accountData(new PublicKey(addr));
-  return d && d.length >= 45 ? d[44] : 0;
 }
 
 // ---- account inspector: decode any pasted address as a Torna header/node or an SPL token account ----
@@ -434,13 +390,11 @@ export function Explorer({ symbol }: { symbol: string }) {
     if (!market) return;
     setLoading(true);
     try {
-      const r = reader(connection());
-      const [a, b, bv, qv, bd, qd] = await Promise.all([
-        readSide(r, askTree(market), keys.Side.Ask), readSide(r, bidTree(market), keys.Side.Bid),
-        tokenAmount(r, market.baseVault), tokenAmount(r, market.quoteVault),
-        mintDecimals(r, market.baseMint), mintDecimals(r, VENUE.quoteMint),
-      ]);
-      setAsk(a); setBid(b); setOv({ baseVault: bv, quoteVault: qv, baseDec: bd, quoteDec: qd }); setError(null);
+      // one cached server read shared by every viewer (see /api/explorer), not a tree walk per browser
+      const res = await fetch(`/api/explorer?symbol=${encodeURIComponent(market.symbol)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status === 503 ? "the chain is busy; retrying" : `explorer read failed (${res.status})`);
+      const v = parseExplorer(await res.text());
+      setAsk(v.ask); setBid(v.bid); setOv(v.ov); setError(null);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); }
   }, [market]);
   useEffect(() => { load(); const id = setInterval(() => { if (!document.hidden) load(); }, 20000); const v = () => { if (!document.hidden) load(); }; document.addEventListener("visibilitychange", v); return () => { clearInterval(id); document.removeEventListener("visibilitychange", v); }; }, [load]);
