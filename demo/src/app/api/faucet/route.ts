@@ -27,7 +27,9 @@ import venue from "@/lib/venue.json";
 export const runtime = "nodejs";
 
 const QUOTE_AMT = 1_000_000n;             // mock USDC, enough to buy across several listings
-const SOL_LAMPORTS = 2_000_000;           // 0.002 SOL — ~400 devnet tx fees, not a SOL faucet
+// 0.012 SOL: fees, plus the rent for the share accounts a first buy opens (~0.002 SOL each, one per
+// listing bought). At 0.002 a fresh wallet could take cash but never open an account to buy into.
+const SOL_LAMPORTS = 12_000_000;
 const ATA_RENT = 2_040_000;               // rent for the one token account the faucet may create
 const CALL_COST = SOL_LAMPORTS + ATA_RENT + 10_000; // true per-call cost (incl. rent + fee)
 const RESERVE_LAMPORTS = 100_000_000;     // never dispense below 0.1 SOL

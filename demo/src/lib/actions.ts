@@ -8,7 +8,7 @@
 // may assume a "current" one. Trees, vaults and mints all come off that market.
 import "./polyfill";
 import { Keypair, PublicKey, Transaction, type Connection } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { keys } from "torna-sdk";
 import { ASK, cancelIx, matchIx, placeIx, placeColdIx, type Side } from "./orderbook";
 import {
@@ -153,7 +153,11 @@ export async function take(
     payMint: new PublicKey(payMint),
   });
   if (!built) return null;
-  const sig = await actor.send(new Transaction().add(built.ix));
+  // the taker receives into their token account for recvMint, which a wallet that has never held
+  // this listing does not have yet: open it in the same transaction (a no-op when it exists)
+  const openRecv = createAssociatedTokenAccountIdempotentInstruction(
+    actor.publicKey, ata(recvMint, actor.publicKey), actor.publicKey, new PublicKey(recvMint));
+  const sig = await actor.send(new Transaction().add(openRecv, built.ix));
   return { sig, fills: built.fills.length };
 }
 
