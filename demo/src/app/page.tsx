@@ -41,7 +41,10 @@ export default function Home() {
               Three minutes, no wallet needed →
             </Link>
           </p>
-          <p className="mt-3 text-xs text-faint">Live on devnet · real SPL escrow, no indexer · external audit pending</p>
+          <p className="mt-3 text-xs text-faint">
+            Live on devnet · test tokens, not shares · real SPL escrow, no indexer · external audit pending ·{" "}
+            <a href="#notice" className="hover:text-muted">notice</a>
+          </p>
         </div>
       </section>
 

@@ -66,6 +66,11 @@ export function Venue() {
           title="Listed" note="a real exchange price, used to check the book"
           rows={markets.filter((m) => m.kind === "listed")} sel={sel} onPick={setSel}
         />
+        <p className="border-t border-line pt-3 text-[11px] leading-relaxed text-faint">
+          Devnet test tokens with no value — not shares, and not PreStocks tokens. TornaCurb has no
+          affiliation with any company listed.{" "}
+          <a href="#notice" className="text-brand hover:text-brand-hi">Full notice</a>
+        </p>
       </div>
       <OracleStrip symbol={sel} />
       <Terminal key={sel} symbol={sel} />
