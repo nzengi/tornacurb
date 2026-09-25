@@ -66,7 +66,7 @@ const RENT: [string, string, string][] = [
   ["Allocator", "32 B", "0.001114"],
   ["Node, fanout 8", "692 B", "0.005707"],
   ["Node, fanout 64", "4,724 B", "0.033770"],
-  ["Market config", "229 B", "0.002485"],
+  ["Market config", "237 B", "0.002540"],
   ["SPL token vault", "165 B", "0.002039"],
   ["SPL mint", "82 B", "0.001462"],
 ];
