@@ -82,8 +82,21 @@ fn main() {
         svm.send_transaction(Transaction::new(&[&u, &kp], Message::new(&[c, i], Some(&u.pubkey())), bh)).unwrap();
         kp
     };
-    let base_vault = mk_acct(&mut svm, &base_mint.pubkey(), &book);
-    let quote_vault = mk_acct(&mut svm, &quote_mint.pubkey(), &book);
+    // vaults are the book PDA's ATAs: InitMarket requires it (an ATA can never carry a close
+    // authority, so it can never be closed and re-created under someone else)
+    let ata_prog = Pubkey::from_str("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL").unwrap();
+    let mk_vault = |svm: &mut LiteSVM, mint: &Pubkey, owner: &Pubkey| -> Pubkey {
+        let ata = Pubkey::find_program_address(&[owner.as_ref(), token.as_ref(), mint.as_ref()], &ata_prog).0;
+        let ix = Instruction::new_with_bytes(ata_prog, &[1u8], vec![ // CreateIdempotent
+            AccountMeta::new(u.pubkey(), true), AccountMeta::new(ata, false), AccountMeta::new_readonly(*owner, false),
+            AccountMeta::new_readonly(*mint, false), AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(token, false)]);
+        let bh = svm.latest_blockhash();
+        svm.send_transaction(Transaction::new(&[&u], Message::new(&[ix], Some(&u.pubkey())), bh)).unwrap();
+        ata
+    };
+    let base_vault = mk_vault(&mut svm, &base_mint.pubkey(), &book);
+    let quote_vault = mk_vault(&mut svm, &quote_mint.pubkey(), &book);
 
     // --- build both trees: init, seed a 0-size sentinel (so escrow==sum holds), authority -> book ---
     let ns = node_size(F as usize, VS as usize);
@@ -104,7 +117,7 @@ fn main() {
         send!([&u], Instruction::new_with_bytes(ob, &d, vec![
             AccountMeta::new(u.pubkey(), true), AccountMeta::new(cfg, false), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(base_mint.pubkey(), false), AccountMeta::new_readonly(quote_mint.pubkey(), false),
-            AccountMeta::new_readonly(base_vault.pubkey(), false), AccountMeta::new_readonly(quote_vault.pubkey(), false),
+            AccountMeta::new_readonly(base_vault, false), AccountMeta::new_readonly(quote_vault, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false), AccountMeta::new_readonly(bid.header_pda().0, false),
             AccountMeta::new_readonly(ar, false), AccountMeta::new_readonly(br, false),
@@ -124,8 +137,8 @@ fn main() {
         send!([&u], mint_to(&base_mint.pubkey(), &base_of[&kp.pubkey()].pubkey(), 1000)).unwrap();
         send!([&u], mint_to(&quote_mint.pubkey(), &quote_of[&kp.pubkey()].pubkey(), 100_000)).unwrap();
     }
-    let all_base: Vec<Pubkey> = base_of.values().map(|k| k.pubkey()).chain([base_vault.pubkey()]).collect();
-    let all_quote: Vec<Pubkey> = quote_of.values().map(|k| k.pubkey()).chain([quote_vault.pubkey()]).collect();
+    let all_base: Vec<Pubkey> = base_of.values().map(|k| k.pubkey()).chain([base_vault]).collect();
+    let all_quote: Vec<Pubkey> = quote_of.values().map(|k| k.pubkey()).chain([quote_vault]).collect();
     let total = |svm: &LiteSVM, accts: &[Pubkey]| -> u64 { accts.iter().map(|a| bal(svm, a)).sum() };
     let init_base = total(&svm, &all_base);
     let init_quote = total(&svm, &all_quote);
@@ -138,8 +151,8 @@ fn main() {
         let ask_sum: u64 = ask.scan(&r, 10_000).iter().map(|(_, v)| u64::from_be_bytes(v[32..40].try_into().unwrap())).sum();
         let bid_sum: u64 = bid.scan(&r, 10_000).iter()
             .map(|(k, v)| keys::price_of(keys::Side::Bid, k) * u64::from_be_bytes(v[32..40].try_into().unwrap())).sum();
-        check!(bal(&svm, &base_vault.pubkey()) == ask_sum, concat!($label, ": base_vault == sum of resting ask sizes"));
-        check!(bal(&svm, &quote_vault.pubkey()) == bid_sum, concat!($label, ": quote_vault == sum of resting bid price*size"));
+        check!(bal(&svm, &base_vault) == ask_sum, concat!($label, ": base_vault == sum of resting ask sizes"));
+        check!(bal(&svm, &quote_vault) == bid_sum, concat!($label, ": quote_vault == sum of resting bid price*size"));
     }}; }
 
     // place helper (ASK escrows base from src; BID escrows quote)
@@ -153,7 +166,7 @@ fn main() {
         d.extend_from_slice(&($price as u64).to_le_bytes()); d.extend_from_slice(&($size as u64).to_le_bytes());
         d.extend_from_slice(&0u64.to_le_bytes()); d.extend_from_slice(&($nonce as u64).to_le_bytes());
         d.extend_from_slice(&MID.to_le_bytes()); d.push(bump);
-        let vault = if $side == ASK { base_vault.pubkey() } else { quote_vault.pubkey() };
+        let vault = if $side == ASK { base_vault } else { quote_vault };
         let mut m = vec![AccountMeta::new($maker.pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(t.header_pda().0, false),
             AccountMeta::new(src, false), AccountMeta::new(vault, false), AccountMeta::new_readonly(token, false),
@@ -178,7 +191,7 @@ fn main() {
         d.push(2); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump); d.push(1); d.push(path.len() as u8);
         let mut meta = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
-            AccountMeta::new(base_vault.pubkey(), false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
+            AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
             AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
             AccountMeta::new_readonly(cfg, false),
             AccountMeta::new(quote_of[&m[0].pubkey()].pubkey(), false), AccountMeta::new(quote_of[&m[1].pubkey()].pubkey(), false)];
@@ -196,7 +209,7 @@ fn main() {
         d.push(2); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump); d.push(1); d.push(path.len() as u8);
         let mut meta = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(bid.header_pda().0, false),
-            AccountMeta::new(quote_vault.pubkey(), false), AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false),
+            AccountMeta::new(quote_vault, false), AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false),
             AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
             AccountMeta::new_readonly(cfg, false),
             AccountMeta::new(base_of[&m[2].pubkey()].pubkey(), false), AccountMeta::new(base_of[&m[3].pubkey()].pubkey(), false)];
@@ -214,7 +227,7 @@ fn main() {
         let mut d = vec![1u8]; d.extend_from_slice(&key); d.push(ASK); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump);
         let mut meta = vec![AccountMeta::new(m[1].pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
-            AccountMeta::new(base_vault.pubkey(), false), AccountMeta::new(base_of[&m[1].pubkey()].pubkey(), false),
+            AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&m[1].pubkey()].pubkey(), false),
             AccountMeta::new_readonly(token, false), AccountMeta::new_readonly(cfg, false)];
         for (i, &n) in path.iter().enumerate() { let pk = ask.node_pda(n).0;
             meta.push(if i == path.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); }
@@ -238,7 +251,7 @@ fn main() {
         for (_, b) in &spares { d.push(*b); }
         let mut meta = vec![AccountMeta::new(cold_maker.pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new(ask.header_pda().0, false),
-            AccountMeta::new(base_of[&cold_maker.pubkey()].pubkey(), false), AccountMeta::new(base_vault.pubkey(), false),
+            AccountMeta::new(base_of[&cold_maker.pubkey()].pubkey(), false), AccountMeta::new(base_vault, false),
             AccountMeta::new_readonly(token, false), AccountMeta::new_readonly(cfg, false),
             AccountMeta::new(ask.alloc_pda().0, false), AccountMeta::new_readonly(Pubkey::default(), false)];
         for &n in &path { meta.push(AccountMeta::new(ask.node_pda(n).0, false)); }
@@ -255,7 +268,7 @@ fn main() {
         d.push(8); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump); d.push(2); d.push(p0.len() as u8);
         let mut meta = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
-            AccountMeta::new(base_vault.pubkey(), false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
+            AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
             AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
             AccountMeta::new_readonly(cfg, false)];
         // 8 maker_recv (quote accts of each filled ask maker, in price order 200..207 -> m0,m1,m2,m3,m0,m1,m2,m0)
@@ -277,7 +290,7 @@ fn main() {
         let mk = |hdr: Pubkey, prog: Pubkey| -> Instruction {
             let mut meta = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
                 AccountMeta::new_readonly(prog, false), AccountMeta::new_readonly(hdr, false),
-                AccountMeta::new(base_vault.pubkey(), false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
+                AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
                 AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
                 AccountMeta::new_readonly(cfg, false), AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false)];
             for (i, &n) in path.iter().enumerate() { let pk = ask.node_pda(n).0;
@@ -293,7 +306,7 @@ fn main() {
         pd.extend_from_slice(&0u64.to_le_bytes()); pd.extend_from_slice(&7u64.to_le_bytes()); pd.extend_from_slice(&MID.to_le_bytes()); pd.push(bump);
         let mut pm = vec![AccountMeta::new(m[0].pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
-            AccountMeta::new(quote_of[&m[0].pubkey()].pubkey(), false), AccountMeta::new(quote_vault.pubkey(), false), // WRONG: quote src+vault for an ask
+            AccountMeta::new(quote_of[&m[0].pubkey()].pubkey(), false), AccountMeta::new(quote_vault, false), // WRONG: quote src+vault for an ask
             AccountMeta::new_readonly(token, false), AccountMeta::new_readonly(cfg, false)];
         for (i, &n) in pp.iter().enumerate() { let pk = ask.node_pda(n).0;
             pm.push(if i == pp.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); }
@@ -311,8 +324,8 @@ fn main() {
         let mid2 = 2u64;
         let (book2, _) = Pubkey::find_program_address(&[b"book", &mid2.to_le_bytes()], &ob);
         let (cfg2, _) = Pubkey::find_program_address(&[b"mkt", &mid2.to_le_bytes()], &ob);
-        let bv2 = mk_acct(&mut svm, &base_mint.pubkey(), &book2);
-        let qv2 = mk_acct(&mut svm, &quote_mint.pubkey(), &book2);
+        let bv2 = mk_vault(&mut svm, &base_mint.pubkey(), &book2);
+        let qv2 = mk_vault(&mut svm, &quote_mint.pubkey(), &book2);
         let ask2 = Tree::new(torna, u.pubkey(), 5);
         let bid2 = Tree::new(torna, u.pubkey(), 6);
         for t in [&ask2, &bid2] { send!([&u], t.init_tree_ix(u.pubkey(), VS, F, rent(&svm, 146), rent(&svm, 32))).unwrap(); }
@@ -323,7 +336,7 @@ fn main() {
             Instruction::new_with_bytes(ob, &d, vec![
                 AccountMeta::new(u.pubkey(), true), AccountMeta::new(cfg2, false), AccountMeta::new_readonly(book2, false),
                 AccountMeta::new_readonly(base_mint.pubkey(), false), AccountMeta::new_readonly(quote_mint.pubkey(), false),
-                AccountMeta::new_readonly(bv2.pubkey(), false), AccountMeta::new_readonly(qv2.pubkey(), false),
+                AccountMeta::new_readonly(bv2, false), AccountMeta::new_readonly(qv2, false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ah, false), AccountMeta::new_readonly(bh, false),
                 AccountMeta::new_readonly(Pubkey::default(), false), AccountMeta::new_readonly(Pubkey::default(), false), // root leaves (empty tree -> unused)
@@ -346,8 +359,8 @@ fn main() {
         let mid3 = 3u64;
         let (book3, _) = Pubkey::find_program_address(&[b"book", &mid3.to_le_bytes()], &ob);
         let (cfg3, _) = Pubkey::find_program_address(&[b"mkt", &mid3.to_le_bytes()], &ob);
-        let bv3 = mk_acct(&mut svm, &base_mint.pubkey(), &book3);
-        let qv3 = mk_acct(&mut svm, &quote_mint.pubkey(), &book3);
+        let bv3 = mk_vault(&mut svm, &base_mint.pubkey(), &book3);
+        let qv3 = mk_vault(&mut svm, &quote_mint.pubkey(), &book3);
         let ask3 = Tree::new(torna, u.pubkey(), 7);
         let bid3 = Tree::new(torna, u.pubkey(), 8);
         for t in [&ask3, &bid3] { send!([&u], t.init_tree_ix(u.pubkey(), VS, F, rent(&svm, 146), rent(&svm, 32))).unwrap(); }
@@ -364,7 +377,7 @@ fn main() {
         let mut d = vec![4u8]; d.extend_from_slice(&mid3.to_le_bytes()); d.push(0); d.push(0); d.extend_from_slice(&rent(&svm, 229).to_le_bytes());
         let m = vec![AccountMeta::new(u.pubkey(), true), AccountMeta::new(cfg3, false), AccountMeta::new_readonly(book3, false),
             AccountMeta::new_readonly(base_mint.pubkey(), false), AccountMeta::new_readonly(quote_mint.pubkey(), false),
-            AccountMeta::new_readonly(bv3.pubkey(), false), AccountMeta::new_readonly(qv3.pubkey(), false), AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(bv3, false), AccountMeta::new_readonly(qv3, false), AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask3.header_pda().0, false), AccountMeta::new_readonly(bid3.header_pda().0, false),
             AccountMeta::new_readonly(ar3, false), AccountMeta::new_readonly(br3, false)];
         check!(send!([&u], Instruction::new_with_bytes(ob, &d, m)).is_err(), "SECURITY: InitMarket rejects a tree pre-seeded with an unescrowed order");
@@ -377,7 +390,7 @@ fn main() {
         d.push(1); d.extend_from_slice(&MID.to_le_bytes()); d.push(bump); d.push(1); d.push(p.len() as u8);
         let mut m = vec![AccountMeta::new(taker.pubkey(), true), AccountMeta::new_readonly(book, false),
             AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask.header_pda().0, false),
-            AccountMeta::new(base_vault.pubkey(), false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
+            AccountMeta::new(base_vault, false), AccountMeta::new(base_of[&taker.pubkey()].pubkey(), false),
             AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false), AccountMeta::new_readonly(token, false),
             AccountMeta::new_readonly(cfg, false), AccountMeta::new(quote_of[&taker.pubkey()].pubkey(), false)];
         for (i, &n) in p.iter().enumerate() {
@@ -386,6 +399,117 @@ fn main() {
         }
         check!(send!([&taker], Instruction::new_with_bytes(ob, &d, m)).is_err(), "SECURITY: non-Torna leaf in match sweep rejected");
     }
+
+    // ============ Vault close-authority backdoor ============
+    // SPL Token keeps a non-native account's close_authority across an AccountOwner transfer.
+    // So an attacker can build a token account, keep close authority on it, hand ownership to
+    // the book PDA, and pass it as a vault. Once its balance is 0 they close it, re-create the
+    // same address under themselves, and every later place escrows straight into their account.
+    let attacker = Keypair::new();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+    let set_auth = |acct: &Pubkey, kind: u8, new: &Pubkey| -> Instruction {
+        let mut d = vec![6u8, kind, 1u8]; d.extend_from_slice(new.as_ref()); // SetAuthority, COption::Some
+        Instruction::new_with_bytes(token, &d, vec![AccountMeta::new(*acct, false), AccountMeta::new_readonly(attacker.pubkey(), true)]) };
+    // a keypair token account for `mint`, owned by the attacker at creation
+    let mk_owned = |svm: &mut LiteSVM, kp: &Keypair, mint: &Pubkey| {
+        let mut cd = vec![0u8; 4]; cd.extend_from_slice(&rent(svm, 165).to_le_bytes());
+        cd.extend_from_slice(&165u64.to_le_bytes()); cd.extend_from_slice(token.as_ref());
+        let c = Instruction::new_with_bytes(Pubkey::default(), &cd, vec![AccountMeta::new(attacker.pubkey(), true), AccountMeta::new(kp.pubkey(), true)]);
+        let mut id = vec![18u8]; id.extend_from_slice(attacker.pubkey().as_ref());
+        let i = Instruction::new_with_bytes(token, &id, vec![AccountMeta::new(kp.pubkey(), false), AccountMeta::new_readonly(*mint, false)]);
+        let bh = svm.latest_blockhash();
+        svm.send_transaction(Transaction::new(&[&attacker, kp], Message::new(&[c, i], Some(&attacker.pubkey())), bh)).unwrap();
+    };
+    // a backdoored vault: book-owned on paper, attacker still holds close authority
+    // returns whether the setup took: book-owned, close authority (COption tag @129) still set
+    let backdoor = |svm: &mut LiteSVM, kp: &Keypair, book: &Pubkey| -> bool {
+        mk_owned(svm, kp, &base_mint.pubkey());
+        let bh = svm.latest_blockhash();
+        let ixs = [set_auth(&kp.pubkey(), 3, &attacker.pubkey()), set_auth(&kp.pubkey(), 2, book)]; // CloseAccount, AccountOwner
+        svm.send_transaction(Transaction::new(&[&attacker], Message::new(&ixs, Some(&attacker.pubkey())), bh)).unwrap();
+        svm.get_account(&kp.pubkey()).is_some_and(|a| a.data[32..64] == book.to_bytes()[..] && a.data[129] == 1)
+    };
+    // two fresh trees authority-bound to `book` (with a 0-size sentinel so a place has a leaf)
+    let bound_trees = |svm: &mut LiteSVM, ids: (u32, u32), book: &Pubkey| -> (Tree, Tree) {
+        let (a, b) = (Tree::new(torna, u.pubkey(), ids.0), Tree::new(torna, u.pubkey(), ids.1));
+        for (t, side, p_sent) in [(&a, keys::Side::Ask, 1_000_000u64), (&b, keys::Side::Bid, 1u64)] {
+            let bh = svm.latest_blockhash();
+            svm.send_transaction(Transaction::new(&[&u], Message::new(&[t.init_tree_ix(u.pubkey(), VS, F, rent(svm, 146), rent(svm, 32))], Some(&u.pubkey())), bh)).unwrap();
+            let k = keys::order_key(side, p_sent, 0, &u.pubkey(), 0);
+            let mut v = vec![0u8; VS as usize]; v[0..32].copy_from_slice(u.pubkey().as_ref());
+            let ix = { let r = R(svm); t.insert_ix(&r, u.pubkey(), &k, &v, rent(svm, ns)).unwrap() };
+            let mut d = vec![11u8]; d.extend_from_slice(book.as_ref());
+            let xfer = Instruction::new_with_bytes(torna, &d, vec![AccountMeta::new(t.header_pda().0, false), AccountMeta::new_readonly(u.pubkey(), true)]);
+            let bh = svm.latest_blockhash();
+            svm.send_transaction(Transaction::new(&[&u], Message::new(&[ix, xfer], Some(&u.pubkey())), bh)).unwrap();
+        }
+        (a, b)
+    };
+
+    // (1) InitMarket refuses a backdoored vault
+    {
+        let mid4 = 4u64;
+        let (book4, _) = Pubkey::find_program_address(&[b"book", &mid4.to_le_bytes()], &ob);
+        let (cfg4, _) = Pubkey::find_program_address(&[b"mkt", &mid4.to_le_bytes()], &ob);
+        let bv4 = Keypair::new();
+        check!(backdoor(&mut svm, &bv4, &book4), "setup: vault owned by the book PDA yet still carrying the attacker's close authority");
+        let qv4 = mk_vault(&mut svm, &quote_mint.pubkey(), &book4);
+        let (ask4, bid4) = bound_trees(&mut svm, (13, 14), &book4);
+        let (ar, br) = { let r = R(&svm); (ask4.node_pda(ask4.header(&r).unwrap().root).0, bid4.node_pda(bid4.header(&r).unwrap().root).0) };
+        let mut d = vec![4u8]; d.extend_from_slice(&mid4.to_le_bytes()); d.push(0); d.push(0); d.extend_from_slice(&rent(&svm, 229).to_le_bytes());
+        let meta = vec![AccountMeta::new(u.pubkey(), true), AccountMeta::new(cfg4, false), AccountMeta::new_readonly(book4, false),
+            AccountMeta::new_readonly(base_mint.pubkey(), false), AccountMeta::new_readonly(quote_mint.pubkey(), false),
+            AccountMeta::new_readonly(bv4.pubkey(), false), AccountMeta::new_readonly(qv4, false), AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask4.header_pda().0, false), AccountMeta::new_readonly(bid4.header_pda().0, false),
+            AccountMeta::new_readonly(ar, false), AccountMeta::new_readonly(br, false)];
+        check!(send!([&u], Instruction::new_with_bytes(ob, &d, meta)).is_err(), "SECURITY: InitMarket rejects a vault that is not the book PDA's ATA (close-authority backdoor)");
+    }
+
+    // (2) a market configured before that check existed: its vault was closed and re-created
+    // under the attacker, so the cfg still names the address but the tokens would land with them.
+    // place must refuse to escrow into a vault the book PDA does not own.
+    {
+        let mid5 = 5u64;
+        let (book5, bump5) = Pubkey::find_program_address(&[b"book", &mid5.to_le_bytes()], &ob);
+        let (cfg5, cfg5_bump) = Pubkey::find_program_address(&[b"mkt", &mid5.to_le_bytes()], &ob);
+        let bv5 = Keypair::new();
+        check!(backdoor(&mut svm, &bv5, &book5), "setup: vault owned by the book PDA yet still carrying the attacker's close authority");
+        let qv5 = mk_vault(&mut svm, &quote_mint.pubkey(), &book5);
+        let (ask5, bid5) = bound_trees(&mut svm, (15, 16), &book5);
+        // the config a pre-fix InitMarket would have written
+        let mut cd = Vec::with_capacity(229);
+        cd.extend_from_slice(&0x344b_544du32.to_le_bytes()); cd.push(cfg5_bump);
+        for k in [base_mint.pubkey(), quote_mint.pubkey(), bv5.pubkey(), qv5, torna, ask5.header_pda().0, bid5.header_pda().0] { cd.extend_from_slice(k.as_ref()); }
+        svm.set_account(cfg5, solana_sdk::account::Account { lamports: rent(&svm, 229), data: cd, owner: ob, executable: false, rent_epoch: 0 }).unwrap();
+
+        // attacker closes the empty vault and re-creates the same address as their own account
+        let close = Instruction::new_with_bytes(token, &[9u8], vec![AccountMeta::new(bv5.pubkey(), false),
+            AccountMeta::new(attacker.pubkey(), false), AccountMeta::new_readonly(attacker.pubkey(), true)]);
+        let bh = svm.latest_blockhash();
+        svm.send_transaction(Transaction::new(&[&attacker], Message::new(&[close], Some(&attacker.pubkey())), bh)).unwrap();
+        svm.expire_blockhash(); // the re-create is byte-identical to the first create
+        mk_owned(&mut svm, &bv5, &base_mint.pubkey());
+        check!(svm.get_account(&bv5.pubkey()).map(|a| a.data[32..64] == attacker.pubkey().to_bytes()[..]) == Some(true),
+            "setup: the configured vault address is now the attacker's own token account");
+
+        let victim = &makers[0];
+        let before = bal(&svm, &base_of[&victim.pubkey()].pubkey());
+        let key = keys::order_key(keys::Side::Ask, 100, 0, &victim.pubkey(), 900);
+        let path = { let r = R(&svm); ask5.path(&r, &key).unwrap() };
+        let mut d = vec![0u8, ASK]; d.extend_from_slice(&100u64.to_le_bytes()); d.extend_from_slice(&5u64.to_le_bytes());
+        d.extend_from_slice(&0u64.to_le_bytes()); d.extend_from_slice(&900u64.to_le_bytes()); d.extend_from_slice(&mid5.to_le_bytes()); d.push(bump5);
+        let mut meta = vec![AccountMeta::new(victim.pubkey(), true), AccountMeta::new_readonly(book5, false),
+            AccountMeta::new_readonly(torna, false), AccountMeta::new_readonly(ask5.header_pda().0, false),
+            AccountMeta::new(base_of[&victim.pubkey()].pubkey(), false), AccountMeta::new(bv5.pubkey(), false),
+            AccountMeta::new_readonly(token, false), AccountMeta::new_readonly(cfg5, false)];
+        for (i, &n) in path.iter().enumerate() { let pk = ask5.node_pda(n).0;
+            meta.push(if i == path.len()-1 { AccountMeta::new(pk, false) } else { AccountMeta::new_readonly(pk, false) }); }
+        check!(send!([victim], Instruction::new_with_bytes(ob, &d, meta)).is_err(), "SECURITY: place refuses to escrow into a vault the book PDA no longer owns");
+        check!(bal(&svm, &base_of[&victim.pubkey()].pubkey()) == before && bal(&svm, &bv5.pubkey()) == 0,
+            "SECURITY: no escrow reached the attacker's re-created vault");
+        let _ = bid5;
+    }
+    invariants!("after vault-backdoor attempts (state unchanged)");
 
     println!("\nobtest (orderbook: conservation + security): pass={pass} fail={fail} -> {}",
              if fail == 0 { "ALL PASS" } else { "FAILURES" });
