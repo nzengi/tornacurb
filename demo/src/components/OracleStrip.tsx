@@ -71,7 +71,11 @@ export function OracleStrip({ symbol }: { symbol: string }) {
               {issuer.symbol} on prestocks.com ↗
             </a>
           )}
-          {issuer.mint && <span className="nums text-[11px] text-faint">{shorten(issuer.mint)} · mainnet</span>}
+          {issuer.mint && (
+            <span className="text-[11px] text-faint">
+              <span className="nums">{shorten(issuer.mint)}</span> · their mainnet token, not the one traded here
+            </span>
+          )}
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
           {wide ? (
