@@ -113,7 +113,9 @@ export async function POST(req: Request) {
 
   // One attempt against one endpoint. Server-only route, so prefer the server-only endpoint: a
   // dedicated RPC key belongs in RPC_URL, never in NEXT_PUBLIC_* which ships to every browser.
+  let stage = "start"; // which step an attempt was on when it failed, for the error reason
   const fund = async (conn: Connection): Promise<NextResponse> => {
+    stage = "key";
     const faucet = faucetKey();
     const quoteMint = new PublicKey(venue.quoteMint);
     const quoteAta = getAssociatedTokenAddressSync(quoteMint, dest);
@@ -122,12 +124,14 @@ export async function POST(req: Request) {
     // re-fund, which is the point. A missing ATA reads as 0. This also stops a second attempt from
     // funding twice when the first one landed but could not be confirmed.
     const amt = async (a: PublicKey) => { try { return (await withRetry(() => getAccount(conn, a))).amount; } catch { return 0n; } };
+    stage = "funded-check";
     if ((await amt(quoteAta)) >= FUNDED_QUOTE) {
       rollback();
       return NextResponse.json({ alreadyFunded: true });
     }
 
     // reserve floor: never drain below 0.1 SOL (true per-call cost incl. rent)
+    stage = "balance";
     if (await withRetry(() => conn.getBalance(faucet.publicKey)) < RESERVE_LAMPORTS + CALL_COST) {
       rollback();
       return NextResponse.json({ error: "faucet temporarily out of funds" }, { status: 503 });
@@ -144,11 +148,14 @@ export async function POST(req: Request) {
     // same reason). Re-sending a signed transaction after a 429 is safe: it has one signature.
     // Preflight is skipped: under load an RPC node's simulation can reject a sound transaction
     // (a blockhash it has not seen yet); the status polling below catches a real failure anyway.
+    stage = "blockhash";
     const { blockhash, lastValidBlockHeight } = await withRetry(() => conn.getLatestBlockhash("confirmed"));
     tx.recentBlockhash = blockhash;
     tx.feePayer = faucet.publicKey;
     tx.sign(faucet);
+    stage = "send";
     const sig = await withRetry(() => conn.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 3 }));
+    stage = "confirm";
     for (;;) {
       const st = (await withRetry(() => conn.getSignatureStatuses([sig]))).value[0];
       if (st?.err) throw new Error(`faucet tx failed: ${JSON.stringify(st.err)}`);
@@ -174,6 +181,7 @@ export async function POST(req: Request) {
   }
   rollback(); // the spend didn't land; don't burn the user's dest cooldown
   // a short reason, scrubbed of any endpoint (the RPC URL can carry a key), so a failure is diagnosable
-  const reason = String((lastErr as Error)?.message ?? lastErr).replace(/https?:\/\/\S+/g, "<rpc>").replace(/api-key=\S+/gi, "").slice(0, 120);
+  const err = lastErr as Error | undefined;
+  const reason = `${stage}: ${err?.name ?? "Error"}${err?.constructor?.name && err.constructor.name !== err?.name ? `/${err.constructor.name}` : ""} ${String(err?.message ?? lastErr)}`.replace(/https?:\/\/\S+/g, "<rpc>").replace(/api-key=\S+/gi, "").slice(0, 120);
   return NextResponse.json({ error: "faucet unavailable, try again", reason }, { status: 500 });
 }
